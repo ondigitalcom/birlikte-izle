@@ -155,7 +155,7 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
   <h1>Birlikte İzle</h1>
   <div class="status" id="st">Bağlanıyor…</div>
   <button class="ghost" id="mode" type="button" hidden aria-pressed="false">2 kişilik oda</button>
-  <select id="lk" hidden aria-label="Link türü"><option value="g">Toplu link (48 saat)</option><option value="k">Tekli link (24 saat)</option></select>
+  <select id="lk" hidden aria-label="Link türü"><option value="k" selected>Tekli link (24 saat)</option><option value="g">Toplu link (48 saat)</option></select>
   <button class="ghost" id="copy" hidden>Linki kopyala</button>
   <div id="cnt" aria-live="polite">👥 1 aktif</div>
 </header>
@@ -170,7 +170,6 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
     <div class="player"><div id="ytWrap"><div id="yt"></div></div><video id="vid" controls playsinline></video></div>
   </section>
   <aside class="chat">
-    <div class="cstat" id="cst">Bağlanıyor…</div>
     <div class="msgs" id="msgs"></div>
     <div class="picker" id="picker">
       <div class="tabs">
@@ -275,7 +274,7 @@ const TTL_ONE = 24 * 60 * 60 * 1000; // tekli link ömrü: 24 saat
 const gTTL = qs.get('k') ? TTL_ONE : TTL;
 const isHost = !hostId;
 
-function setStatus(t) { $('st').textContent = t; $('cst').textContent = t; }
+function setStatus(t) { $('st').textContent = t; }
 
 function addMsg(text, cls, who) {
   const d = document.createElement('div');
@@ -471,7 +470,7 @@ peer.on('open', (id) => {
     $('copy').hidden = false;
     $('lk').hidden = false;
     $('mode').hidden = false;
-    addMsg('Oda hazır. Linki kopyalayıp arkadaşına gönder. Link 48 saat geçerli, sonra yenisi oluşur.', 'sys');
+    addMsg('Oda hazır (2 kişilik). Tekli linki kopyalayıp arkadaşına gönder, 24 saat geçerli ve ilk açan cihaza özel. Daha fazla kişi için toplu linki seçebilirsin.', 'sys');
   } else {
     connectHost();
   }
