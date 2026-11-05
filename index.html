@@ -154,6 +154,7 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
 <header>
   <h1>Birlikte İzle</h1>
   <div class="status" id="st">Bağlanıyor…</div>
+  <button class="ghost" id="mode" type="button" hidden aria-pressed="false">2 kişilik oda</button>
   <select id="lk" hidden aria-label="Link türü"><option value="g">Toplu link (48 saat)</option><option value="k">Tekli link (24 saat)</option></select>
   <button class="ghost" id="copy" hidden>Linki kopyala</button>
   <div id="cnt" aria-live="polite">👥 1 aktif</div>
@@ -302,7 +303,7 @@ if (isHost) {
   if (!myCode || !hostStart || Date.now() - hostStart > TTL) {
     myCode = Math.random().toString(36).slice(2, 8);
     hostStart = Date.now();
-    try { sessionStorage.removeItem('odaK'); sessionStorage.removeItem('odaG'); sessionStorage.setItem('oda', myCode); sessionStorage.setItem('odaT', String(hostStart)); } catch (e) {}
+    try { sessionStorage.removeItem('odaM'); sessionStorage.removeItem('odaK'); sessionStorage.removeItem('odaG'); sessionStorage.setItem('oda', myCode); sessionStorage.setItem('odaT', String(hostStart)); } catch (e) {}
   }
 }
 function rnd() {
@@ -385,11 +386,13 @@ function gone(c) {
 }
 
 const MAX_VIEWERS = 8;
+let groupMode = false; // varsayılan: 2 kişilik oda (1 izleyici)
+if (isHost) { try { groupMode = sessionStorage.getItem('odaM') === '1'; } catch (e) {} }
 let myRole = isHost ? 'kurucu' : 'izleyici';
 const lbl = (r, n) => (r === 'kurucu' ? 'kurucu' : (Number.isInteger(n) && n >= 1 && n <= MAX_VIEWERS ? 'izleyici ' + n : 'izleyici'));
 
 function admit(c, m) {
-  const full = conns.filter((x) => x._ok).length >= MAX_VIEWERS;
+  const full = conns.filter((x) => x._ok).length >= (groupMode ? MAX_VIEWERS : 1);
   const why = full ? 'full' : checkHello(m);
   if (why) {
     c._gone = true;
@@ -427,7 +430,7 @@ function wire(c) {
     }
     if (!isHost && m.type === 'deny') {
       denied = true;
-      const why = { full: 'Oda dolu, en fazla ' + MAX_VIEWERS + ' izleyici girebilir. Biri çıkınca sayfayı yenile.', used: 'Bu tekli link başka bir cihaza ait.', expired: 'Linkin süresi doldu. Oda sahibinden yeni link iste.' }[m.why] || 'Bu link geçersiz. Oda sahibinden yeni link iste.';
+      const why = { full: 'Oda dolu. Biri çıkınca ya da oda sahibi toplu odayı açınca sayfayı yenile.', used: 'Bu tekli link başka bir cihaza ait.', expired: 'Linkin süresi doldu. Oda sahibinden yeni link iste.' }[m.why] || 'Bu link geçersiz. Oda sahibinden yeni link iste.';
       setStatus('Odaya girilemedi');
       addMsg(why, 'sys');
       return;
@@ -467,6 +470,7 @@ peer.on('open', (id) => {
     setStatus('Hazır, linki arkadaşına gönder');
     $('copy').hidden = false;
     $('lk').hidden = false;
+    $('mode').hidden = false;
     addMsg('Oda hazır. Linki kopyalayıp arkadaşına gönder. Link 48 saat geçerli, sonra yenisi oluşur.', 'sys');
   } else {
     connectHost();
@@ -1029,6 +1033,18 @@ $('imgSend').onclick = () => {
   $('picker').classList.remove('open');
 };
 $('txt').onkeydown = (e) => e.key === 'Enter' && sendChat();
+
+function paintMode() {
+  $('mode').textContent = groupMode ? 'Toplu oda (en fazla ' + MAX_VIEWERS + ')' : '2 kişilik oda';
+  $('mode').setAttribute('aria-pressed', String(groupMode));
+}
+$('mode').onclick = () => {
+  groupMode = !groupMode;
+  try { sessionStorage.setItem('odaM', groupMode ? '1' : '0'); } catch (e) {}
+  paintMode();
+  addMsg(groupMode ? 'Toplu oda açıldı, en fazla ' + MAX_VIEWERS + ' izleyici girebilir.' : '2 kişilik oda seçildi, yeni giriş kapandı. İçeridekiler kalır.', 'sys');
+};
+paintMode();
 
 $('copy').onclick = async () => {
   let link, note;
