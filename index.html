@@ -109,6 +109,29 @@ html{overflow-x:hidden}
 .photo .warn b{font-size:18px}
 .photo .warn small{font-size:12px}
 .photo .warn button{padding:6px 12px;font-size:13px;text-shadow:none}
+
+header{position:relative;padding-right:110px}
+#cnt{position:absolute;top:12px;right:16px;font-size:14px;font-weight:700;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 10px;white-space:nowrap}
+.chat{transform:translateZ(0);isolation:isolate}
+#txt{-webkit-user-select:text;user-select:text;-webkit-appearance:none;appearance:none;font-size:16px;touch-action:manipulation}
+#lk{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px 8px;font:inherit;font-size:14px}
+#res{display:none;flex-direction:column;gap:6px;max-height:300px;overflow:auto}
+#res.open{display:flex}
+#res p{margin:0;color:var(--dim);font-size:13px}
+.ri{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);color:var(--text);padding:6px;text-align:left;font-weight:400;border-radius:8px}
+.ri img{width:96px;height:54px;object-fit:cover;border-radius:6px;flex:none;background:#000}
+.ri span{min-width:0}
+.ri b{font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ri small{color:var(--dim)}
+footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relative;z-index:1}
+#rp{position:fixed;inset:0;z-index:95;background:rgba(5,6,16,.7);display:none;align-items:center;justify-content:center;padding:16px}
+#rp.open{display:flex}
+.rbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;width:100%;max-width:420px}
+.rbox h2{font-size:18px;margin:0 0 10px}
+.rbox textarea{width:100%;min-height:140px;max-height:50vh;resize:vertical;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:8px;font:inherit;font-size:16px}
+.rbox textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rbox p{margin:8px 0 0;font-size:12px;color:var(--dim)}
+.rbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 </style>
 </head>
 <body>
@@ -131,14 +154,18 @@ html{overflow-x:hidden}
 <header>
   <h1>Birlikte İzle</h1>
   <div class="status" id="st">Bağlanıyor…</div>
-  <button class="ghost" id="copy" hidden>Oda linkini kopyala</button>
+  <select id="lk" hidden aria-label="Link türü"><option value="g">Toplu link (48 saat)</option><option value="k">Tekli link (24 saat)</option></select>
+  <button class="ghost" id="copy" hidden>Linki kopyala</button>
+  <div id="cnt" aria-live="polite">👥 1 aktif</div>
 </header>
 <main>
   <section class="stage">
     <div class="row">
-      <input id="url" placeholder="YouTube ya da video linki (.mp4, .webm, .m3u8)" autocomplete="off">
+      <input id="url" placeholder="Ara ya da YouTube / video linki yapıştır" autocomplete="off">
       <button id="load">Yükle</button>
+      <button class="ghost" id="srch">Ara</button>
     </div>
+    <div id="res"></div>
     <div class="player"><div id="ytWrap"><div id="yt"></div></div><video id="vid" controls playsinline></video></div>
   </section>
   <aside class="chat">
@@ -173,12 +200,24 @@ html{overflow-x:hidden}
     </div>
     <div class="row">
       <button class="ghost" id="emojiBtn" aria-label="Emoji ekle">😊</button>
-      <input id="txt" placeholder="Mesaj yaz" autocomplete="off">
+      <input id="txt" type="text" placeholder="Mesaj yaz" autocomplete="off" enterkeyhint="send">
       <button id="sendBtn">Gönder</button>
     </div>
   </aside>
 </main>
 
+<footer><button class="ghost" id="rpBtn" type="button">Sorun bildir</button></footer>
+<div id="rp" role="dialog" aria-modal="true" aria-labelledby="rpT">
+  <div class="rbox">
+    <h2 id="rpT">Sorun bildir</h2>
+    <textarea id="rpTxt" maxlength="2000" placeholder="Yaşadığın sorunu buraya yaz"></textarea>
+    <p id="rpMsg">Gönder'e basınca mail uygulaman yazdıklarınla açılır, mail'i oradan göndermen yeterli.</p>
+    <div class="rbtns">
+      <button class="ghost" id="rpCancel" type="button">Vazgeç</button>
+      <button id="rpSend" type="button">Gönder</button>
+    </div>
+  </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -230,7 +269,9 @@ if (appStarted) return;
 appStarted = true;
 const qs = new URLSearchParams(location.search);
 const hostId = qs.get('oda');
-const TTL = 48 * 60 * 60 * 1000; // link ömrü: 48 saat
+const TTL = 48 * 60 * 60 * 1000; // toplu link ömrü: 48 saat
+const TTL_ONE = 24 * 60 * 60 * 1000; // tekli link ömrü: 24 saat
+const gTTL = qs.get('k') ? TTL_ONE : TTL;
 const isHost = !hostId;
 
 function setStatus(t) { $('st').textContent = t; $('cst').textContent = t; }
@@ -261,11 +302,48 @@ if (isHost) {
   if (!myCode || !hostStart || Date.now() - hostStart > TTL) {
     myCode = Math.random().toString(36).slice(2, 8);
     hostStart = Date.now();
-    try { sessionStorage.setItem('oda', myCode); sessionStorage.setItem('odaT', String(hostStart)); } catch (e) {}
+    try { sessionStorage.removeItem('odaK'); sessionStorage.removeItem('odaG'); sessionStorage.setItem('oda', myCode); sessionStorage.setItem('odaT', String(hostStart)); } catch (e) {}
   }
 }
+function rnd() {
+  try { const a = new Uint8Array(12); crypto.getRandomValues(a); return Array.from(a, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 16); }
+  catch (e) { return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2); }
+}
+function devId() {
+  let d = '';
+  try { d = localStorage.getItem('devId') || ''; } catch (e) {}
+  if (!d) { try { d = sessionStorage.getItem('devId') || ''; } catch (e) {} }
+  if (!d) d = rnd();
+  try { localStorage.setItem('devId', d); } catch (e) {}
+  try { sessionStorage.setItem('devId', d); } catch (e) {}
+  return d;
+}
+let tokens = {}, gTok = '';
+function saveTokens() {
+  try { sessionStorage.setItem('odaK', JSON.stringify(tokens)); sessionStorage.setItem('odaG', gTok); } catch (e) {}
+}
+if (isHost) {
+  try {
+    tokens = JSON.parse(sessionStorage.getItem('odaK') || '{}') || {};
+    gTok = sessionStorage.getItem('odaG') || '';
+  } catch (e) {}
+  if (!gTok) { tokens = {}; gTok = rnd(); saveTokens(); }
+}
+function checkHello(m) {
+  if (typeof m.dev !== 'string' || !m.dev || m.dev.length > 64) return 'invalid';
+  if (m.k) {
+    const e = tokens[String(m.k)];
+    if (!e) return 'invalid';
+    if (Date.now() - e.t > TTL_ONE) return 'expired';
+    if (e.dev && e.dev !== m.dev) return 'used';
+    if (!e.dev) { e.dev = m.dev; saveTokens(); }
+    return '';
+  }
+  if (m.g && m.g === gTok) return '';
+  return 'invalid';
+}
 const startedAt = Number(qs.get('s')) || 0;
-let expired = !isHost && (!startedAt || Date.now() - startedAt > TTL);
+let expired = !isHost && (!startedAt || Date.now() - startedAt > gTTL);
 const ICE = { config: { iceServers: [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -274,22 +352,101 @@ const ICE = { config: { iceServers: [
   { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
 ] } };
 const peer = isHost ? new Peer('birlikte-' + myCode, ICE) : new Peer(undefined, ICE);
-let shareLink = '';
+let baseLink = '';
+let denied = false;
 
 function broadcast(m, except) {
-  conns.forEach((c) => { if (c !== except && c.open) c.send(m); });
+  conns.forEach((c) => { if (c !== except && c.open && (!isHost || c._ok)) c.send(m); });
 }
 function send(m) { broadcast(m); }
 
-function wire(c) {
-  c.on('data', (m) => { handle(m); if (isHost) broadcast(m, c); });
-  c.on('close', () => {
-    const i = conns.indexOf(c); if (i > -1) conns.splice(i, 1);
-    addMsg(isHost ? 'Biri odadan ayrıldı' : 'Bağlantı koptu, tekrar deniyorum…', 'sys');
-    if (isHost) setStatus('Bekleniyor…');
-    else { setStatus('Tekrar bağlanılıyor…'); setTimeout(connectHost, 3000); }
-  });
+function setCount(n) { $('cnt').textContent = '👥 ' + n + ' aktif'; }
+function live() { return conns.some((x) => x.open && (!isHost || x._ok)); }
+function openCount() { return 1 + conns.filter((x) => x.open && (!isHost || x._ok)).length; }
+function announce(ev) { const n = openCount(); setCount(n); send({ type: 'presence', n, ev }); }
+
+function gone(c) {
+  if (c._gone) return;
+  c._gone = true;
+  const i = conns.indexOf(c); if (i > -1) conns.splice(i, 1);
+  try { c.close(); } catch (e) {}
+  if (isHost) {
+    if (!c._opened) return;
+    addMsg('Biri odadan ayrıldı', 'sys');
+    announce('leave');
+    if (!live()) setStatus('Bekleniyor…');
+  } else {
+    if (denied) return;
+    addMsg('Bağlantı koptu, tekrar deniyorum…', 'sys');
+    setCount(1);
+    setStatus('Tekrar bağlanılıyor…');
+    setTimeout(connectHost, 3000);
+  }
 }
+
+const MAX_VIEWERS = 8;
+let myRole = isHost ? 'kurucu' : 'izleyici';
+const lbl = (r, n) => (r === 'kurucu' ? 'kurucu' : (Number.isInteger(n) && n >= 1 && n <= MAX_VIEWERS ? 'izleyici ' + n : 'izleyici'));
+
+function admit(c, m) {
+  const full = conns.filter((x) => x._ok).length >= MAX_VIEWERS;
+  const why = full ? 'full' : checkHello(m);
+  if (why) {
+    c._gone = true;
+    const i = conns.indexOf(c); if (i > -1) conns.splice(i, 1);
+    try { c.send({ type: 'deny', why }); } catch (e) {}
+    setTimeout(() => { try { c.close(); } catch (e) {} }, 400);
+    return;
+  }
+  const used = new Set(conns.filter((x) => x._ok).map((x) => x._n));
+  let n = 1; while (used.has(n)) n++;
+  c._n = n;
+  c._ok = true; c._opened = true; c._seen = Date.now();
+  clearTimeout(c._hto);
+  try { c.send({ type: 'you', n }); } catch (e) {}
+  setStatus('Birlikte izliyorsunuz');
+  addMsg('Biri odaya katıldı', 'sys');
+  announce('join');
+  if (cur) c.send({ type: 'state', media: cur, time: M.time(), playing: M.playing() });
+}
+
+function wire(c) {
+  c._seen = Date.now();
+  c.on('data', (m) => {
+    c._seen = Date.now();
+    if (!m || typeof m !== 'object' || m.type === 'ping') return;
+    if (isHost && !c._ok) { if (m.type === 'hello') admit(c, m); return; }
+    if (isHost && m.type === 'hello') return;
+    if (isHost && ['chat', 'sticker', 'photo', 'gif'].includes(m.type)) { m.role = 'izleyici'; m.n = c._n; }
+    if (!isHost && m.type === 'you') {
+      if (Number.isInteger(m.n) && m.n >= 1 && m.n <= MAX_VIEWERS) {
+        myRole = 'izleyici ' + m.n;
+        addMsg('Sen ' + myRole + ' olarak katıldın', 'sys');
+      }
+      return;
+    }
+    if (!isHost && m.type === 'deny') {
+      denied = true;
+      const why = { full: 'Oda dolu, en fazla ' + MAX_VIEWERS + ' izleyici girebilir. Biri çıkınca sayfayı yenile.', used: 'Bu tekli link başka bir cihaza ait.', expired: 'Linkin süresi doldu. Oda sahibinden yeni link iste.' }[m.why] || 'Bu link geçersiz. Oda sahibinden yeni link iste.';
+      setStatus('Odaya girilemedi');
+      addMsg(why, 'sys');
+      return;
+    }
+    handle(m);
+    if (isHost && !(m && m.type === 'presence')) broadcast(m, c);
+  });
+  c.on('close', () => gone(c));
+  c.on('error', () => gone(c));
+}
+
+// Kalp atışı: her 3 sn ping gönder, 12 sn ses gelmezse karşı tarafı çıkmış say
+setInterval(() => {
+  conns.slice().forEach((c) => {
+    if (c.open) { try { c.send({ type: 'ping' }); } catch (e) {} }
+    if (c._opened && Date.now() - c._seen > 12000) gone(c);
+  });
+}, 3000);
+window.addEventListener('pagehide', () => { conns.forEach((c) => { try { c.close(); } catch (e) {} }); });
 
 peer.on('error', (e) => {
   if (e.type === 'peer-unavailable') {
@@ -306,9 +463,10 @@ peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
 
 peer.on('open', (id) => {
   if (isHost) {
-    shareLink = location.origin + location.pathname + '?oda=' + id + '&s=' + hostStart;
+    baseLink = location.origin + location.pathname + '?oda=' + id;
     setStatus('Hazır, linki arkadaşına gönder');
     $('copy').hidden = false;
+    $('lk').hidden = false;
     addMsg('Oda hazır. Linki kopyalayıp arkadaşına gönder. Link 48 saat geçerli, sonra yenisi oluşur.', 'sys');
   } else {
     connectHost();
@@ -333,18 +491,21 @@ if (isHost) {
 } else if (expired) {
   addMsg('Bu linkin süresi doldu. Oda sahibinden yeni link iste.', 'sys');
 } else {
-  setTimeout(expireNow, Math.max(0, startedAt + TTL - Date.now()));
+  setTimeout(expireNow, Math.max(0, startedAt + gTTL - Date.now()));
 }
 
 function connectHost() {
-  if (!isHost && (expired || Date.now() - startedAt > TTL)) {
+  if (denied) return;
+  if (!isHost && (expired || Date.now() - startedAt > gTTL)) {
     if (!expired) expireNow(); else setStatus('Linkin süresi doldu');
     return;
   }
   if (conns.some((x) => x.open)) return;
   const c = peer.connect(hostId, { reliable: true });
   c.on('open', () => {
+    c._opened = true; c._ok = true; c._seen = Date.now();
     conns.push(c);
+    try { c.send({ type: 'hello', k: qs.get('k') || '', g: qs.get('g') || '', dev: devId() }); } catch (e) {}
     setStatus('Bağlandın');
     addMsg('Odaya bağlandın', 'sys');
   });
@@ -355,9 +516,8 @@ if (isHost) {
   peer.on('connection', (c) => {
     conns.push(c);
     c.on('open', () => {
-      setStatus('Birlikte izliyorsunuz');
-      addMsg('Biri odaya katıldı', 'sys');
-      if (cur) c.send({ type: 'state', media: cur, time: M.time(), playing: M.playing() });
+      c._seen = Date.now();
+      c._hto = setTimeout(() => { if (!c._ok) { c._gone = true; try { c.close(); } catch (e) {} } }, 6000);
     });
     wire(c);
   });
@@ -531,21 +691,28 @@ document.head.appendChild(ytScript);
 
 function handle(m) {
   if (!m || typeof m !== 'object') return;
-  if (m.type === 'chat') { addMsg(String(m.text), '', m.role === 'kurucu' ? 'kurucu' : 'izleyici'); return; }
+  if (m.type === 'presence') {
+    if (!isHost) {
+      if (Number.isFinite(m.n)) setCount(Math.max(1, Math.min(99, m.n)));
+      if (m.ev === 'leave') addMsg('Biri odadan ayrıldı', 'sys');
+    }
+    return;
+  }
+  if (m.type === 'chat') { addMsg(String(m.text), '', lbl(m.role, m.n)); return; }
   if (m.type === 'sticker') {
     const st = STICKERS[Number(m.i)];
-    if (st) addSticker(st, '', roleOf(m.role));
+    if (st) addSticker(st, '', lbl(m.role, m.n));
     return;
   }
   if (m.type === 'photo') {
     if (typeof m.data === 'string' && m.data.startsWith('data:image/jpeg;base64,') && m.data.length < 3.5e6) {
-      addPhoto(m.data, !!m.adult, false, roleOf(m.role));
+      addPhoto(m.data, !!m.adult, false, lbl(m.role, m.n));
     }
     return;
   }
   if (m.type === 'gif') {
     const u = gifUrl(m.url);
-    if (u) addGif(u, '', roleOf(m.role));
+    if (u) addGif(u, '', lbl(m.role, m.n));
     return;
   }
   if ((m.type === 'state' || m.type === 'load') && m.media && m.media.kind === 'yt' && !ytReady) { pending = m; return; }
@@ -569,7 +736,7 @@ function handle(m) {
 
 // Oda sahibi her 4 saniyede bir zamanını gönderir (kayma olursa düzeltilir)
 setInterval(() => {
-  if (isHost && cur && conns.some((c) => c.open)) send({ type: 'sync', time: M.time() });
+  if (isHost && cur && live()) send({ type: 'sync', time: M.time() });
 }, 4000);
 
 // ---------- Arayüz ----------
@@ -579,7 +746,7 @@ if (!isHost) {
 }
 $('load').onclick = () => {
   const m = parseMedia($('url').value);
-  if (!m) { addMsg('Geçerli bir YouTube ya da video linki değil', 'sys'); return; }
+  if (!m) { doSearch(); return; }
   if (m.kind === 'file' && location.protocol === 'https:' && /^http:\/\//i.test(m.url)) {
     addMsg('http ile başlayan linkler engellenir. https ile başlayan bir link dene.', 'sys');
     return;
@@ -589,23 +756,86 @@ $('load').onclick = () => {
   send({ type: 'load', media: m });
   $('url').value = '';
 };
-$('url').onkeydown = (e) => e.key === 'Enter' && $('load').click();
+$('url').onkeydown = (e) => { if (e.key === 'Enter') { if (parseMedia($('url').value)) $('load').click(); else doSearch(); } };
+$('srch').onclick = () => doSearch();
+
+const SEARCH_SRC = [
+  ['p', 'https://pipedapi.kavin.rocks'], ['p', 'https://pipedapi.adminforge.de'], ['p', 'https://api.piped.private.coffee'],
+  ['i', 'https://inv.nadeko.net'], ['i', 'https://invidious.nerdvpn.de'], ['i', 'https://yewtu.be']
+];
+function fetchJson(url) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 7000);
+  return fetch(url, { signal: ac.signal }).then((r) => { if (!r.ok) throw new Error('http'); return r.json(); }).finally(() => clearTimeout(t));
+}
+function searchOne(src, q) {
+  const e = encodeURIComponent(q);
+  const done = (r) => { if (!r.length) throw new Error('empty'); return r; };
+  if (src[0] === 'p') {
+    return fetchJson(src[1] + '/search?q=' + e + '&filter=videos').then((d) => done((d.items || [])
+      .map((x) => ({ id: (String(x.url || '').match(/v=([\w-]{11})/) || [])[1], title: x.title, by: x.uploaderName }))
+      .filter((x) => x.id && x.title)));
+  }
+  return fetchJson(src[1] + '/api/v1/search?q=' + e + '&type=video').then((d) => done((Array.isArray(d) ? d : [])
+    .filter((x) => x.type === 'video' && /^[\w-]{11}$/.test(x.videoId || ''))
+    .map((x) => ({ id: x.videoId, title: x.title, by: x.author }))));
+}
+let sTok = 0;
+async function doSearch() {
+  const q = $('url').value.trim();
+  if (!q) return;
+  const box = $('res');
+  const note = (t) => { box.textContent = ''; const p = document.createElement('p'); p.textContent = t; box.appendChild(p); };
+  box.classList.add('open');
+  if (!Promise.any) { note('Bu tarayıcı aramayı desteklemiyor. Linki yapıştırarak aç.'); return; }
+  const my = ++sTok;
+  note('Aranıyor…');
+  let list = null;
+  try { list = await Promise.any(SEARCH_SRC.map((x) => searchOne(x, q))); } catch (e) {}
+  if (my !== sTok) return;
+  if (!list) { note('Arama şu an çalışmadı (ücretsiz arama sunucuları kapalı olabilir). Biraz sonra tekrar dene ya da linki yapıştır.'); return; }
+  box.textContent = '';
+  list.slice(0, 8).forEach((r) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ri';
+    const im = new Image();
+    im.alt = '';
+    im.referrerPolicy = 'no-referrer';
+    im.src = 'https://i.ytimg.com/vi/' + r.id + '/mqdefault.jpg';
+    const sp = document.createElement('span');
+    const t = document.createElement('b'); t.textContent = r.title;
+    const a = document.createElement('small'); a.textContent = r.by || '';
+    sp.appendChild(t); sp.appendChild(a);
+    b.appendChild(im); b.appendChild(sp);
+    b.onclick = () => {
+      if (!ytReady) { addMsg('YouTube oynatıcısı hazırlanıyor, birkaç saniye sonra tekrar dene.', 'sys'); return; }
+      const m = { kind: 'yt', id: r.id };
+      loadMedia(m, null);
+      send({ type: 'load', media: m });
+      box.classList.remove('open');
+      box.textContent = '';
+      $('url').value = '';
+    };
+    box.appendChild(b);
+  });
+}
 
 function sendChat() {
   const t = $('txt').value.trim();
   if (!t) return;
-  if (!conns.some((c) => c.open)) {
+  if (!live()) {
     addMsg('Karşı taraf bağlı değil, mesaj gitmedi. Üstteki bağlantı durumunu kontrol et.', 'sys');
     return;
   }
-  const role = isHost ? 'kurucu' : 'izleyici';
-  addMsg(t, 'me', role);
-  send({ type: 'chat', text: t, role });
+  addMsg(t, 'me', myRole);
+  send({ type: 'chat', text: t, role: isHost ? 'kurucu' : 'izleyici' });
   $('txt').value = '';
+  $('txt').focus();
 }
 $('sendBtn').onclick = sendChat;
 
-const EMOJIS = ['😀','😂','🤣','😍','😎','🥹','😭','😱','🤯','😮','🤔','😴','👍','👎','👏','🙌','🙏','👀','🔥','❤️','💔','🎉','🍿','💀'];
+const EMOJIS = ['😀','😂','🤣','😍','😎','😊','🥳','😱','🤯','😮','🤔','😴','👍','👎','👏','🙌','🙏','👀','🔥','❤️','💖','🎉','🍿','💀'];
 EMOJIS.forEach((e) => {
   const b = document.createElement('button');
   b.type = 'button';
@@ -622,17 +852,15 @@ document.querySelectorAll('.tab').forEach((b) => {
 });
 
 // ---------- Sticker ve GIF ----------
-const myRole = isHost ? 'kurucu' : 'izleyici';
-const roleOf = (r) => (r === 'kurucu' ? 'kurucu' : 'izleyici');
 const STICKERS = [
   ['😂', 'Çok güldüm'], ['🔥', 'Yanıyor'], ['❤️', 'Bayıldım'],
-  ['👏', 'Bravo'], ['😭', 'Ağlıyorum'], ['🍿', 'Mısır hazır'],
+  ['👏', 'Bravo'], ['😍', 'Harika'], ['🍿', 'Mısır hazır'],
   ['😱', 'Şok oldum'], ['🤯', 'Aklım gitti'], ['😴', 'Sıkıldım'],
   ['👀', 'Bakıyorum'], ['🎉', 'Kutlama'], ['✋', 'Bir dk durdur']
 ];
 
 function ensureConn() {
-  if (conns.some((c) => c.open)) return true;
+  if (live()) return true;
   addMsg('Karşı taraf bağlı değil, mesaj gitmedi. Üstteki bağlantı durumunu kontrol et.', 'sys');
   return false;
 }
@@ -694,7 +922,7 @@ STICKERS.forEach((st, i) => {
   b.onclick = () => {
     if (!ensureConn()) return;
     addSticker(st, 'me', myRole);
-    send({ type: 'sticker', i, role: myRole });
+    send({ type: 'sticker', i, role: isHost ? 'kurucu' : 'izleyici' });
     $('picker').classList.remove('open');
   };
   $('pS').appendChild(b);
@@ -708,7 +936,7 @@ $('gifSend').onclick = () => {
   }
   if (!ensureConn()) return;
   addGif(u, 'me', myRole);
-  send({ type: 'gif', url: u, role: myRole });
+  send({ type: 'gif', url: u, role: isHost ? 'kurucu' : 'izleyici' });
   $('gifUrl').value = '';
   $('picker').classList.remove('open');
 };
@@ -792,7 +1020,7 @@ $('imgSend').onclick = () => {
   if (!pendingPhoto || !ensureConn()) return;
   const adult = $('imgAdult').checked;
   addPhoto(pendingPhoto, adult, true, myRole);
-  send({ type: 'photo', data: pendingPhoto, adult, role: myRole });
+  send({ type: 'photo', data: pendingPhoto, adult, role: isHost ? 'kurucu' : 'izleyici' });
   pendingPhoto = null;
   $('imgFile').value = '';
   $('imgPrev').hidden = true;
@@ -803,10 +1031,42 @@ $('imgSend').onclick = () => {
 $('txt').onkeydown = (e) => e.key === 'Enter' && sendChat();
 
 $('copy').onclick = async () => {
-  try { await navigator.clipboard.writeText(shareLink); addMsg('Link kopyalandı', 'sys'); }
-  catch { prompt('Linki kopyala:', shareLink); }
+  let link, note;
+  if ($('lk').value === 'k') {
+    const ts = Date.now(), k = rnd();
+    tokens[k] = { t: ts, dev: '' };
+    saveTokens();
+    link = baseLink + '&s=' + ts + '&k=' + k;
+    note = 'Tekli link kopyalandı. 24 saat geçerli, ilk açan cihaza özel.';
+  } else {
+    link = baseLink + '&s=' + hostStart + '&g=' + gTok;
+    note = 'Toplu link kopyalandı. 48 saat geçerli.';
+  }
+  try { await navigator.clipboard.writeText(link); addMsg(note, 'sys'); }
+  catch { prompt('Linki kopyala:', link); }
 };
 }
+</script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const box = $('rp'), txt = $('rpTxt'), msg = $('rpMsg');
+  const MAIL = 'opancial@icloud.com';
+  const hint = msg.textContent;
+  function open() { msg.textContent = hint; box.classList.add('open'); setTimeout(() => txt.focus(), 50); }
+  function close() { box.classList.remove('open'); }
+  $('rpBtn').onclick = open;
+  $('rpCancel').onclick = close;
+  box.onclick = (e) => { if (e.target === box) close(); };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  $('rpSend').onclick = () => {
+    const t = txt.value.trim();
+    if (!t) { msg.textContent = 'Önce sorununu yaz.'; txt.focus(); return; }
+    location.href = 'mailto:' + MAIL + '?subject=' + encodeURIComponent('Birlikte İzle: Sorun bildirimi') + '&body=' + encodeURIComponent(t);
+    txt.value = '';
+    close();
+  };
+})();
 </script>
 </body>
 </html>
