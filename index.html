@@ -195,7 +195,7 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
           <input id="gifUrl" placeholder="GIF linkini yapıştır" autocomplete="off">
           <button id="gifSend">Gönder</button>
         </div>
-        <p><a href="https://giphy.com" target="_blank" rel="noopener">GIPHY'de GIF bul</a>, linkini kopyala ve buraya yapıştır. https ile başlayan .gif, .webp, .png, .jpg linkleri çalışır.</p>
+        <p><a href="https://giphy.com" target="_blank" rel="noopener">GIPHY'de GIF bul</a>, linkini kopyala ve buraya yapıştır. Güvenlik için sadece giphy.com ve tenor.com linkleri kabul edilir.</p>
       </div>
     </div>
     <div class="row">
@@ -267,7 +267,7 @@ let appStarted = false;
 function startApp() {
 if (appStarted) return;
 appStarted = true;
-const qs = new URLSearchParams(location.search);
+const qs = new URLSearchParams(location.hash.length > 1 ? location.hash.slice(1) : location.search);
 const hostId = qs.get('oda');
 const TTL = 48 * 60 * 60 * 1000; // toplu link ömrü: 48 saat
 const TTL_ONE = 24 * 60 * 60 * 1000; // tekli link ömrü: 24 saat
@@ -299,15 +299,16 @@ if (isHost) {
     hostStart = Number(sessionStorage.getItem('odaT')) || 0;
   } catch (e) {}
   // Yoksa ya da 48 saat geçtiyse yeni oda kodu üret
-  if (!myCode || !hostStart || Date.now() - hostStart > TTL) {
-    myCode = Math.random().toString(36).slice(2, 8);
+  if (!myCode || myCode.length < 20 || !hostStart || Date.now() - hostStart > TTL) {
+    myCode = rnd(10);
     hostStart = Date.now();
-    try { sessionStorage.removeItem('odaM'); sessionStorage.removeItem('odaK'); sessionStorage.removeItem('odaG'); sessionStorage.setItem('oda', myCode); sessionStorage.setItem('odaT', String(hostStart)); } catch (e) {}
+    try { sessionStorage.removeItem('odaM'); sessionStorage.removeItem('odaK'); sessionStorage.removeItem('odaG'); sessionStorage.removeItem('odaL'); sessionStorage.setItem('oda', myCode); sessionStorage.setItem('odaT', String(hostStart)); } catch (e) {}
   }
 }
-function rnd() {
-  try { const a = new Uint8Array(12); crypto.getRandomValues(a); return Array.from(a, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 16); }
-  catch (e) { return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2); }
+function rnd(n) {
+  n = n || 16;
+  try { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join(''); }
+  catch (e) { return ''; }
 }
 function devId() {
   let d = '';
@@ -329,18 +330,49 @@ if (isHost) {
   } catch (e) {}
   if (!gTok) { tokens = {}; gTok = rnd(); saveTokens(); }
 }
-function checkHello(m) {
-  if (typeof m.dev !== 'string' || !m.dev || m.dev.length > 64) return 'invalid';
-  if (m.k) {
-    const e = tokens[String(m.k)];
-    if (!e) return 'invalid';
-    if (Date.now() - e.t > TTL_ONE) return 'expired';
-    if (e.dev && e.dev !== m.dev) return 'used';
-    if (!e.dev) { e.dev = m.dev; saveTokens(); }
-    return '';
+// ---------- Kimlik doğrulama (token ağa hiç gönderilmez; HMAC ile karşılıklı doğrulama) ----------
+const enc = new TextEncoder();
+const hex = (buf) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+async function hmac(key, msg) {
+  const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hex(await crypto.subtle.sign('HMAC', k, enc.encode(msg)));
+}
+async function sha(t) { return hex(await crypto.subtle.digest('SHA-256', enc.encode(t))); }
+function same(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+let fails = 0, warnAt = 0, lockDev = '';
+if (isHost) { try { lockDev = sessionStorage.getItem('odaL') || ''; } catch (e) {} }
+function setLock(d) { lockDev = d; try { sessionStorage.setItem('odaL', d); } catch (e) {} }
+function blocked(ua) {
+  if (Date.now() - warnAt < 10000) return;
+  warnAt = Date.now();
+  addMsg('Yetkisiz bir giriş denemesi engellendi' + (ua ? ' (' + ua + ')' : '') + '.', 'sys');
+}
+async function checkHello(c, m) {
+  const bad = { why: 'invalid', e: null };
+  if (fails >= 10 || !c._nh) return bad;
+  if (typeof m.dev !== 'string' || !m.dev || m.dev.length > 64) return bad;
+  if (typeof m.na !== 'string' || m.na.length < 8 || m.na.length > 64) return bad;
+  if (typeof m.mac !== 'string' || typeof m.id !== 'string') return bad;
+  let T = '', e = null;
+  if (m.w === 'k') {
+    for (const t of Object.keys(tokens)) { if (same((await sha(t)).slice(0, 16), m.id)) { T = t; break; } }
+    if (!T) return bad;
+    e = tokens[T];
+  } else if (m.w === 'g' && gTok) {
+    T = gTok;
+  } else return bad;
+  if (!same(await hmac(T, 'g|' + c._nh + '|' + m.na + '|' + m.dev), m.mac)) return bad;
+  c._T = T;
+  if (e) {
+    if (Date.now() - e.t > TTL_ONE) return { why: 'expired', e };
+    if (e.dev && e.dev !== m.dev) return { why: 'used', e };
   }
-  if (m.g && m.g === gTok) return '';
-  return 'invalid';
+  return { why: '', e };
 }
 const startedAt = Number(qs.get('s')) || 0;
 let expired = !isHost && (!startedAt || Date.now() - startedAt > gTTL);
@@ -356,12 +388,12 @@ let baseLink = '';
 let denied = false;
 
 function broadcast(m, except) {
-  conns.forEach((c) => { if (c !== except && c.open && (!isHost || c._ok)) c.send(m); });
+  conns.forEach((c) => { if (c !== except && c.open && (isHost ? c._ok : c._auth)) { try { c.send(m); } catch (e) {} } });
 }
 function send(m) { broadcast(m); }
 
 function setCount(n) { $('cnt').textContent = '👥 ' + n + ' aktif'; }
-function live() { return conns.some((x) => x.open && (!isHost || x._ok)); }
+function live() { return conns.some((x) => x.open && (isHost ? x._ok : x._auth)); }
 function openCount() { return 1 + conns.filter((x) => x.open && (!isHost || x._ok)).length; }
 function announce(ev) { const n = openCount(); setCount(n); send({ type: 'presence', n, ev }); }
 
@@ -372,10 +404,11 @@ function gone(c) {
   try { c.close(); } catch (e) {}
   if (isHost) {
     if (!c._opened) return;
-    addMsg('Biri odadan ayrıldı', 'sys');
+    addMsg((c._ua || 'Biri') + ' odadan ayrıldı', 'sys');
     announce('leave');
     if (!live()) setStatus('Bekleniyor…');
   } else {
+    if (c._full) { setTimeout(connectHost, 4000); return; }
     if (denied) return;
     addMsg('Bağlantı koptu, tekrar deniyorum…', 'sys');
     setCount(1);
@@ -390,52 +423,154 @@ if (isHost) { try { groupMode = sessionStorage.getItem('odaM') === '1'; } catch 
 let myRole = isHost ? 'kurucu' : 'izleyici';
 const lbl = (r, n) => (r === 'kurucu' ? 'kurucu' : (Number.isInteger(n) && n >= 1 && n <= MAX_VIEWERS ? 'izleyici ' + n : 'izleyici'));
 
-function admit(c, m) {
-  const full = conns.filter((x) => x._ok).length >= (groupMode ? MAX_VIEWERS : 1);
-  const why = full ? 'full' : checkHello(m);
+async function admit(c, m) {
+  let why = '', e = null;
+  try { const r = await checkHello(c, m); why = r.why; e = r.e; } catch (err) { why = 'invalid'; }
+  if (c._gone) return;
+  if (!why) {
+    // Doğrulanmış aynı cihaz yeniden bağlanıyorsa eski (donmuş) bağlantıyı bırak
+    conns.slice().forEach((x) => {
+      if (x !== c && x._ok && x._dev === m.dev) {
+        x._gone = true;
+        const i = conns.indexOf(x); if (i > -1) conns.splice(i, 1);
+        try { x.close(); } catch (er) {}
+      }
+    });
+    if (conns.filter((x) => x._ok).length >= (groupMode ? MAX_VIEWERS : 1)) why = 'full';
+    else if (!groupMode && lockDev && lockDev !== m.dev) why = 'used';
+  }
   if (why) {
+    if (why === 'invalid') fails++;
+    blocked(why === 'invalid' ? '' : cleanUa(m.ua));
     c._gone = true;
     const i = conns.indexOf(c); if (i > -1) conns.splice(i, 1);
-    try { c.send({ type: 'deny', why }); } catch (e) {}
-    setTimeout(() => { try { c.close(); } catch (e) {} }, 400);
+    try { c.send({ type: 'deny', why }); } catch (er) {}
+    setTimeout(() => { try { c.close(); } catch (er) {} }, 400);
     return;
   }
+  if (e && !e.dev) { e.dev = m.dev; saveTokens(); }
+  if (!groupMode && !lockDev) setLock(m.dev);
   const used = new Set(conns.filter((x) => x._ok).map((x) => x._n));
   let n = 1; while (used.has(n)) n++;
   c._n = n;
-  c._ok = true; c._opened = true; c._seen = Date.now();
+  c._ok = true; c._opened = true; c._seen = Date.now(); c._dev = m.dev; c._ua = cleanUa(m.ua);
   clearTimeout(c._hto);
-  try { c.send({ type: 'you', n }); } catch (e) {}
+  let proof = '';
+  try { proof = await hmac(c._T, 'h|' + c._nh + '|' + m.na); } catch (er) {}
+  try { c.send({ type: 'you', n, proof }); } catch (er) {}
   setStatus('Birlikte izliyorsunuz');
-  addMsg('Biri odaya katıldı', 'sys');
+  addMsg((c._ua || 'Biri') + ' odaya katıldı', 'sys');
   announce('join');
   if (cur) c.send({ type: 'state', media: cur, time: M.time(), playing: M.playing() });
+}
+
+// Cihaz bilgisi: tarayıcının verdiği kadarı (iPhone modeli tarayıcıdan öğrenilemez, Android modeli çoğu zaman öğrenilir)
+async function deviceInfo() {
+  const ua = navigator.userAgent || '';
+  let dev = '', os = '', br = '', m;
+  if (/iPhone/.test(ua)) { dev = 'iPhone'; m = ua.match(/OS (\d+)[_.]/); os = m ? 'iOS ' + m[1] : 'iOS'; }
+  else if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) { dev = 'iPad'; m = ua.match(/OS (\d+)[_.]/); os = m ? 'iPadOS ' + m[1] : ''; }
+  else if (/Android/.test(ua)) {
+    dev = 'Android telefon'; m = ua.match(/Android (\d+)/); os = m ? 'Android ' + m[1] : 'Android';
+    const um = ua.match(/Android [\d.]+; ([^;)]+)/);
+    if (um && um[1].length > 1 && !/^(K|Linux)$/.test(um[1].trim())) dev = um[1].trim();
+    try {
+      const h = await Promise.race([navigator.userAgentData.getHighEntropyValues(['model']), new Promise((r) => setTimeout(r, 800))]);
+      if (h && h.model) dev = h.model;
+    } catch (e) {}
+  }
+  else if (/Windows/.test(ua)) dev = 'Windows bilgisayar';
+  else if (/CrOS/.test(ua)) dev = 'Chromebook';
+  else if (/Mac OS X|Macintosh/.test(ua)) dev = 'Mac';
+  else if (/Linux/.test(ua)) dev = 'Linux bilgisayar';
+  if (/EdgA?\/|Edg\//.test(ua)) br = 'Edge';
+  else if (/OPR\//.test(ua)) br = 'Opera';
+  else if (/SamsungBrowser/.test(ua)) br = 'Samsung Internet';
+  else if (/FxiOS|Firefox\//.test(ua)) br = 'Firefox';
+  else if (/CriOS|Chrome\//.test(ua)) br = 'Chrome';
+  else if (/Safari\//.test(ua)) br = 'Safari';
+  return [dev, os, br].filter(Boolean).join(' · ').slice(0, 80);
+}
+const cleanUa = (u) => String(u || '').replace(/[^\p{L}\p{N} ·.\-_()+]/gu, '').slice(0, 80);
+
+async function guestHello(c, m) {
+  if (c._na || typeof m.nh !== 'string' || m.nh.length < 8 || m.nh.length > 64) return;
+  const w = qs.get('k') ? 'k' : 'g';
+  const T = qs.get('k') || qs.get('g') || '';
+  if (!T || !(window.crypto && crypto.subtle)) {
+    denied = true;
+    setStatus('Odaya girilemedi');
+    addMsg('Bu link geçersiz ya da tarayıcı güvenli bağlantıyı desteklemiyor. Oda sahibinden yeni link iste.', 'sys');
+    try { c.close(); } catch (e) {}
+    return;
+  }
+  c._na = rnd(12); c._nh = m.nh; c._T = T;
+  const dev = devId();
+  const ua = await deviceInfo();
+  c.send({ type: 'hello', ua, w, id: (await sha(T)).slice(0, 16), na: c._na, dev, mac: await hmac(T, 'g|' + m.nh + '|' + c._na + '|' + dev) });
+}
+
+async function guestAuth(c, m) {
+  if (c._auth || !c._na || typeof m.proof !== 'string') return;
+  let ok = false;
+  try { ok = same(await hmac(c._T, 'h|' + c._nh + '|' + c._na), m.proof); } catch (e) {}
+  if (!ok) {
+    denied = true;
+    setStatus('Oda doğrulanamadı');
+    addMsg('Odanın gerçek oda sahibi olduğu doğrulanamadı, bağlantı kapatıldı.', 'sys');
+    try { c.close(); } catch (e) {}
+    return;
+  }
+  c._auth = true;
+  setStatus('Bağlandın');
+  addMsg('Odaya bağlandın', 'sys');
+  if (Number.isInteger(m.n) && m.n >= 1 && m.n <= MAX_VIEWERS) {
+    myRole = 'izleyici ' + m.n;
+    addMsg('Sen ' + myRole + ' olarak katıldın', 'sys');
+  }
+}
+
+async function onData(c, m) {
+  if (!m || typeof m !== 'object' || m.type === 'ping') return;
+  if (isHost) {
+    // Doğrulanmamış bağlantıdan sadece hello kabul edilir
+    if (!c._ok) { if (m.type === 'hello' && !c._ver) { c._ver = true; await admit(c, m); } return; }
+    // İzleyiciden sadece sohbet içeriği kabul edilir (video kontrolü sadece oda sahibinde)
+    let o = null;
+    if (m.type === 'chat' && typeof m.text === 'string') o = { type: 'chat', text: m.text.slice(0, 2000) };
+    else if (m.type === 'sticker' && Number.isInteger(m.i) && m.i >= 0 && m.i < STICKERS.length) o = { type: 'sticker', i: m.i };
+    else if (m.type === 'photo' && typeof m.data === 'string' && m.data.startsWith('data:image/jpeg;base64,') && m.data.length < 1.6e6) o = { type: 'photo', data: m.data, adult: !!m.adult };
+    else if (m.type === 'gif') { const u = gifUrl(m.url); if (u) o = { type: 'gif', url: u }; }
+    if (!o) return;
+    o.role = 'izleyici'; o.n = c._n;
+    handle(o);
+    broadcast(o, c);
+    return;
+  }
+  if (m.type === 'chal') { await guestHello(c, m); return; }
+  if (m.type === 'you') { await guestAuth(c, m); return; }
+  if (m.type === 'deny') {
+    if (c._auth) return;
+    if (m.why === 'full') {
+      c._full = true;
+      setStatus('Oda dolu, tekrar deniyorum…');
+      return;
+    }
+    denied = true;
+    const why = { used: 'Bu tekli link başka bir cihaza ait.', expired: 'Linkin süresi doldu. Oda sahibinden yeni link iste.' }[m.why] || 'Bu link geçersiz. Oda sahibinden yeni link iste.';
+    setStatus('Odaya girilemedi');
+    addMsg(why, 'sys');
+    return;
+  }
+  if (!c._auth) return; // doğrulanmadan hiçbir mesaj işlenmez
+  handle(m);
 }
 
 function wire(c) {
   c._seen = Date.now();
   c.on('data', (m) => {
     c._seen = Date.now();
-    if (!m || typeof m !== 'object' || m.type === 'ping') return;
-    if (isHost && !c._ok) { if (m.type === 'hello') admit(c, m); return; }
-    if (isHost && m.type === 'hello') return;
-    if (isHost && ['chat', 'sticker', 'photo', 'gif'].includes(m.type)) { m.role = 'izleyici'; m.n = c._n; }
-    if (!isHost && m.type === 'you') {
-      if (Number.isInteger(m.n) && m.n >= 1 && m.n <= MAX_VIEWERS) {
-        myRole = 'izleyici ' + m.n;
-        addMsg('Sen ' + myRole + ' olarak katıldın', 'sys');
-      }
-      return;
-    }
-    if (!isHost && m.type === 'deny') {
-      denied = true;
-      const why = { full: 'Oda dolu. Biri çıkınca ya da oda sahibi toplu odayı açınca sayfayı yenile.', used: 'Bu tekli link başka bir cihaza ait.', expired: 'Linkin süresi doldu. Oda sahibinden yeni link iste.' }[m.why] || 'Bu link geçersiz. Oda sahibinden yeni link iste.';
-      setStatus('Odaya girilemedi');
-      addMsg(why, 'sys');
-      return;
-    }
-    handle(m);
-    if (isHost && !(m && m.type === 'presence')) broadcast(m, c);
+    c._p = (c._p || Promise.resolve()).then(() => onData(c, m)).catch(() => {});
   });
   c.on('close', () => gone(c));
   c.on('error', () => gone(c));
@@ -445,9 +580,16 @@ function wire(c) {
 setInterval(() => {
   conns.slice().forEach((c) => {
     if (c.open) { try { c.send({ type: 'ping' }); } catch (e) {} }
-    if (c._opened && Date.now() - c._seen > 12000) gone(c);
+    if (c._opened && Date.now() - c._seen > 35000) gone(c);
   });
 }, 3000);
+// Telefonda uygulama arka plana gidip gelince zamanlayıcılar durur: sayaçları sıfırla, gerekirse yeniden bağlan
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  conns.forEach((c) => { c._seen = Date.now(); });
+  try { if (peer.disconnected && !peer.destroyed) peer.reconnect(); } catch (e) {}
+  if (!isHost && !denied && !conns.some((x) => x.open)) connectHost();
+});
 window.addEventListener('pagehide', () => { conns.forEach((c) => { try { c.close(); } catch (e) {} }); });
 
 peer.on('error', (e) => {
@@ -465,7 +607,7 @@ peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
 
 peer.on('open', (id) => {
   if (isHost) {
-    baseLink = location.origin + location.pathname + '?oda=' + id;
+    baseLink = location.origin + location.pathname + '#oda=' + id;
     setStatus('Hazır, linki arkadaşına gönder');
     $('copy').hidden = false;
     $('lk').hidden = false;
@@ -506,20 +648,22 @@ function connectHost() {
   if (conns.some((x) => x.open)) return;
   const c = peer.connect(hostId, { reliable: true });
   c.on('open', () => {
-    c._opened = true; c._ok = true; c._seen = Date.now();
+    c._opened = true; c._seen = Date.now();
     conns.push(c);
-    try { c.send({ type: 'hello', k: qs.get('k') || '', g: qs.get('g') || '', dev: devId() }); } catch (e) {}
-    setStatus('Bağlandın');
-    addMsg('Odaya bağlandın', 'sys');
+    setStatus('Doğrulanıyor…');
+    setTimeout(() => { if (!c._auth && !c._gone && !c._full && !denied) { try { c.close(); } catch (e) {} } }, 10000);
   });
   wire(c);
 }
 
 if (isHost) {
   peer.on('connection', (c) => {
+    if (conns.filter((x) => !x._ok).length >= 3) { c._gone = true; setTimeout(() => { try { c.close(); } catch (e) {} }, 0); return; }
     conns.push(c);
     c.on('open', () => {
       c._seen = Date.now();
+      c._nh = rnd(12);
+      try { c.send({ type: 'chal', nh: c._nh }); } catch (e) {}
       c._hto = setTimeout(() => { if (!c._ok) { c._gone = true; try { c.close(); } catch (e) {} } }, 6000);
     });
     wire(c);
@@ -894,7 +1038,8 @@ function addSticker(st, cls, who) {
 function gifUrl(u) {
   let x;
   try { x = new URL(String(u).trim()); } catch (e) { return null; }
-  if (x.protocol !== 'https:') return null;
+  if (x.protocol !== 'https:' || x.username || x.password || x.port) return null;
+  if (!/(^|\.)(giphy\.com|tenor\.com)$/i.test(x.hostname)) return null;
   if (/(^|\.)giphy\.com$/i.test(x.hostname) && /^\/gifs\//.test(x.pathname)) {
     const id = x.pathname.replace(/\/+$/, '').split('/').pop().split('-').pop();
     return /^[A-Za-z0-9]+$/.test(id) ? 'https://media.giphy.com/media/' + id + '/giphy.gif' : null;
@@ -934,7 +1079,7 @@ STICKERS.forEach((st, i) => {
 $('gifSend').onclick = () => {
   const u = gifUrl($('gifUrl').value);
   if (!u) {
-    addMsg('Geçerli bir GIF linki değil. https ile başlayan bir resim linki ya da giphy.com linki yapıştır.', 'sys');
+    addMsg('Güvenlik için sadece giphy.com ve tenor.com GIF linkleri kabul edilir.', 'sys');
     return;
   }
   if (!ensureConn()) return;
@@ -981,8 +1126,8 @@ function shrink(file) {
     const url = URL.createObjectURL(file);
     const im = new Image();
     im.onload = () => {
-      let max = 1280, q = 0.8, out = '';
-      for (let i = 0; i < 4; i++) {
+      let max = 1024, q = 0.7, out = '';
+      for (let i = 0; i < 6; i++) {
         const r = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
         const c = document.createElement('canvas');
         c.width = Math.max(1, Math.round(im.naturalWidth * r));
@@ -992,11 +1137,11 @@ function shrink(file) {
         x.fillRect(0, 0, c.width, c.height);
         x.drawImage(im, 0, 0, c.width, c.height);
         out = c.toDataURL('image/jpeg', q);
-        if (out.length < 1.5e6) break;
-        max *= 0.75; q -= 0.1;
+        if (out.length < 5e5) break;
+        max *= 0.75; q = Math.max(0.4, q - 0.08);
       }
       URL.revokeObjectURL(url);
-      out.length < 3e6 ? res(out) : rej(new Error('big'));
+      out.length < 1.5e6 ? res(out) : rej(new Error('big'));
     };
     im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad')); };
     im.src = url;
@@ -1039,6 +1184,7 @@ function paintMode() {
 }
 $('mode').onclick = () => {
   groupMode = !groupMode;
+  if (groupMode) setLock('');
   try { sessionStorage.setItem('odaM', groupMode ? '1' : '0'); } catch (e) {}
   paintMode();
   addMsg(groupMode ? 'Toplu oda açıldı, en fazla ' + MAX_VIEWERS + ' izleyici girebilir.' : '2 kişilik oda seçildi, yeni giriş kapandı. İçeridekiler kalır.', 'sys');
@@ -1046,6 +1192,7 @@ $('mode').onclick = () => {
 paintMode();
 
 $('copy').onclick = async () => {
+  if (!live()) setLock(''); // odada kimse yokken yeni davet: kilit açılır
   let link, note;
   if ($('lk').value === 'k') {
     const ts = Date.now(), k = rnd();
