@@ -219,8 +219,182 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
     </div>
   </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
+// ---------- Aktarma katmanı: herkese açık MQTT aracıları üzerinden, uçtan uca şifreli ----------
+// Doğrudan (P2P) bağlantı mobil veride ve farklı ağlarda kurulamadığı için tüm trafik aracı sunucudan geçer.
+// Aracı sunucu sadece şifreli veri görür; anahtar giriş doğrulamasından türetilir ve ağa hiç gönderilmez.
+const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
+const RTE = new TextEncoder(), RTD = new TextDecoder();
+function rndHex(n) { const a = new Uint8Array(n || 16); crypto.getRandomValues(a); return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join(''); }
+function b64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); }
+function unb64(t) { const s = atob(t), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+function loadMqtt() {
+  return new Promise((res) => {
+    if (window.mqtt) return res(true);
+    const srcs = ['https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js', 'https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
+    const next = () => {
+      const u = srcs.shift();
+      if (!u) return res(false);
+      const sc = document.createElement('script');
+      sc.src = u;
+      sc.onload = () => (window.mqtt ? res(true) : next());
+      sc.onerror = next;
+      document.head.appendChild(sc);
+    };
+    next();
+  });
+}
+class RelayConn {
+  constructor(p, cid, out) {
+    this.p = p; this.cid = cid; this.out = out;
+    this.open = false; this.closed = false; this.h = {};
+    this.key = null; this.tx = 0; this.maxRx = 0; this.rxSeen = new Set(); this.pend = [];
+    this._sq = Promise.resolve(); this._rq = Promise.resolve();
+  }
+  on(e, f) { this.h[e] = f; return this; }
+  emit(e, a) { try { this.h[e] && this.h[e](a); } catch (er) {} }
+  _open() { if (this.open || this.closed) return; this.open = true; clearTimeout(this._to); this.emit('open'); }
+  async setKey(hexKey) {
+    const raw = new Uint8Array(hexKey.match(/../g).map((x) => parseInt(x, 16)));
+    this.key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    const q = this.pend; this.pend = [];
+    q.forEach((e) => this._in(e));
+  }
+  send(m) {
+    if (this.closed) return;
+    const key = this.key; // anahtar, send çağrıldığı andaki duruma göre
+    this._sq = this._sq.then(() => this._send('d', m, key)).catch(() => {});
+  }
+  async _send(k, m, key) {
+    const env = { k, c: this.cid, u: rndHex(6) };
+    if (key) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const pt = RTE.encode(JSON.stringify({ s: ++this.tx, m }));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: RTE.encode(this.cid + (this.p.isHostPeer ? 'h' : 'g')) }, key, pt);
+      env.e = 1; env.iv = b64(iv); env.d = b64(new Uint8Array(ct));
+    } else env.d = m;
+    this.p.pub(this.out, env);
+  }
+  close() {
+    if (this.closed) return;
+    const key = this.key;
+    this._sq = this._sq.then(() => this._send('x', 0, key)).catch(() => {});
+    this.closed = true; this.open = false;
+    clearTimeout(this._to);
+    this.emit('close');
+  }
+  _in(env) {
+    if (this.closed) return;
+    if (!this.open && !this.p.isHostPeer) this._open();
+    this._rq = this._rq.then(() => this._proc(env)).catch(() => {});
+  }
+  async _proc(env) {
+    let m;
+    if (env.e) {
+      if (!this.key) { if (this.pend.length < 200) this.pend.push(env); return; }
+      if (typeof env.iv !== 'string' || typeof env.d !== 'string') return;
+      let o;
+      try {
+        const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(env.iv), additionalData: RTE.encode(this.cid + (this.p.isHostPeer ? 'g' : 'h')) }, this.key, unb64(env.d));
+        o = JSON.parse(RTD.decode(pt));
+      } catch (e) { return; }
+      if (!o || !Number.isInteger(o.s) || o.s <= this.maxRx - 1000 || this.rxSeen.has(o.s)) return;
+      this.rxSeen.add(o.s);
+      if (o.s > this.maxRx) this.maxRx = o.s;
+      if (this.rxSeen.size > 3000) for (const x of Array.from(this.rxSeen)) { if (x <= this.maxRx - 1000) this.rxSeen.delete(x); }
+      m = o.m;
+    } else {
+      if (this.key) return; // anahtar kurulduktan sonra şifresiz mesaj kabul edilmez
+      m = env.d;
+    }
+    if (env.k === 'x') { this.closed = true; this.open = false; delete this.p.conns[this.cid]; this.emit('close'); return; }
+    if (env.k === 'd') this.emit('data', m);
+  }
+}
+class RelayPeer {
+  constructor(id) {
+    this.id = id || ('c' + rndHex(8));
+    this.isHostPeer = !!id;
+    this.h = {}; this.conns = {}; this.topics = new Set(); this.clients = [];
+    this.seen = new Set(); this.seenQ = [];
+    this.disconnected = true; this.destroyed = false; this._opened = false;
+    loadMqtt().then((ok) => {
+      if (!ok) { this.emit('error', { type: 'mqtt-yuklenemedi' }); return; }
+      if (this.isHostPeer) this.topics.add(this._t(this.id, 'h'));
+      BROKERS.forEach((u) => this._broker(u));
+    });
+    setTimeout(() => { if (!this._opened) this.emit('error', { type: 'aracı-sunucuya-ulasilamadi' }); }, 20000);
+  }
+  _t(host, tail) { return 'opn-birlikte/' + host + '/' + tail; }
+  on(e, f) { this.h[e] = f; return this; }
+  emit(e, a) { try { this.h[e] && this.h[e](a); } catch (er) {} }
+  _broker(url) {
+    let cl;
+    try { cl = mqtt.connect(url, { clientId: 'opn' + rndHex(8), clean: true, keepalive: 30, connectTimeout: 8000, reconnectPeriod: 3000 }); } catch (e) { return; }
+    const rec = { cl, up: false };
+    this.clients.push(rec);
+    cl.on('connect', () => { rec.up = true; this.topics.forEach((t) => { try { cl.subscribe(t, { qos: 1 }); } catch (e) {} }); this._state(); });
+    cl.on('close', () => { rec.up = false; this._state(); });
+    cl.on('offline', () => { rec.up = false; this._state(); });
+    cl.on('error', () => {});
+    cl.on('message', (topic, payload) => this._msg(topic, payload));
+  }
+  _state() {
+    const up = this.clients.some((r) => r.up);
+    if (up) { this.disconnected = false; if (!this._opened) { this._opened = true; this.emit('open', this.id); } }
+    else if (this._opened && !this.disconnected) { this.disconnected = true; this.emit('disconnected'); }
+  }
+  sub(t) {
+    this.topics.add(t);
+    const ps = this.clients.filter((r) => r.up).map((r) => new Promise((res) => { try { r.cl.subscribe(t, { qos: 1 }, () => res()); } catch (e) { res(); } }));
+    return Promise.race([Promise.all(ps), new Promise((r) => setTimeout(r, 3000))]);
+  }
+  pub(topic, env) {
+    const s = JSON.stringify(env);
+    this.clients.forEach((r) => { if (r.up) { try { r.cl.publish(topic, s, { qos: 1 }); } catch (e) {} } });
+  }
+  reconnect() { this.clients.forEach((r) => { if (!r.up) { try { r.cl.reconnect(); } catch (e) {} } }); }
+  connect(hostId) {
+    const cid = rndHex(8);
+    const c = new RelayConn(this, cid, this._t(hostId, 'h'));
+    this.conns[cid] = c;
+    const inbox = this._t(hostId, 'c/' + this.id);
+    const hello = () => { if (!c.open && !c.closed) this.pub(c.out, { k: 'o', c: cid, f: this.id, u: rndHex(6) }); };
+    c._to = setTimeout(() => {
+      if (!c.open && !c.closed) { c.closed = true; delete this.conns[cid]; this.emit('error', { type: 'peer-unavailable' }); }
+    }, 8000);
+    this.sub(inbox).then(() => { hello(); setTimeout(hello, 2500); setTimeout(hello, 5000); });
+    return c;
+  }
+  _msg(topic, payload) {
+    let env;
+    try { env = JSON.parse(RTD.decode(payload)); } catch (e) { return; }
+    if (!env || typeof env !== 'object' || typeof env.u !== 'string' || env.u.length > 24 || typeof env.c !== 'string' || env.c.length > 40) return;
+    if (this.seen.has(env.u)) return;
+    this.seen.add(env.u); this.seenQ.push(env.u);
+    if (this.seenQ.length > 3000) this.seen.delete(this.seenQ.shift());
+    if (this.isHostPeer) {
+      if (topic !== this._t(this.id, 'h')) return;
+      if (env.k === 'o') {
+        if (typeof env.f !== 'string' || !env.f || env.f.length > 40) return;
+        const old = this.conns[env.c];
+        if (old) { this.pub(old.out, { k: 'a', c: env.c, u: rndHex(6) }); return; }
+        const c = new RelayConn(this, env.c, this._t(this.id, 'c/' + env.f));
+        this.conns[env.c] = c;
+        this.emit('connection', c);
+        setTimeout(() => { c._open(); this.pub(c.out, { k: 'a', c: env.c, u: rndHex(6) }); }, 0);
+        return;
+      }
+      const c = this.conns[env.c];
+      if (c) c._in(env);
+    } else {
+      const c = this.conns[env.c];
+      if (!c) return;
+      if (env.k === 'a') c._open(); else c._in(env);
+    }
+  }
+}
+
 const $ = (id) => document.getElementById(id);
 
 // ---------- Yaş kapısı ----------
@@ -265,7 +439,7 @@ function showGate() {
 
 // ---------- Uygulama (yaş onayından sonra başlar) ----------
 let appStarted = false;
-const APP_VER = '2026-11-16-c';
+const APP_VER = '2026-11-17-d';
 function startApp() {
 if (appStarted) return;
 appStarted = true;
@@ -379,15 +553,7 @@ async function checkHello(c, m) {
 }
 const startedAt = Number(qs.get('s')) || 0;
 let expired = !isHost && (!startedAt || Date.now() - startedAt > gTTL);
-const ICE = { config: { iceServers: [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-] } };
-const peer = isHost ? new Peer('birlikte-' + myCode, ICE) : new Peer(undefined, ICE);
+const peer = isHost ? new RelayPeer('birlikte-' + myCode) : new RelayPeer();
 let baseLink = '';
 let denied = false;
 
@@ -507,8 +673,9 @@ async function admit(c, m) {
   let proof = '';
   try { proof = await hmac(c._T, 'h|' + c._nh + '|' + m.na); } catch (er) {}
   try { c.send({ type: 'you', n, proof }); } catch (er) {}
+  try { await c.setKey(await hmac(c._T, 'k|' + c._nh + '|' + m.na)); } catch (er) { try { c.close(); } catch (e2) {} return; }
   setStatus('Birlikte izliyorsunuz');
-  addMsg((c._ua || 'Biri') + ' odaya katıldı', 'sys');
+  addMsg('Biri odaya katıldı', 'sys');
   announce('join');
   if (cur) c.send({ type: 'state', media: cur, time: M.time(), playing: M.playing() });
 }
@@ -562,8 +729,7 @@ async function guestHello(c, m) {
   }
   c._na = rnd(12); c._nh = m.nh; c._T = T;
   const dev = devId();
-  const ua = await deviceInfo();
-  c.send({ type: 'hello', ua, w, id: (await sha(T)).slice(0, 16), na: c._na, dev, mac: await hmac(T, 'g|' + m.nh + '|' + c._na + '|' + dev) });
+  c.send({ type: 'hello', w, id: (await sha(T)).slice(0, 16), na: c._na, dev, mac: await hmac(T, 'g|' + m.nh + '|' + c._na + '|' + dev) });
 }
 
 async function guestAuth(c, m) {
@@ -577,7 +743,9 @@ async function guestAuth(c, m) {
     try { c.close(); } catch (e) {}
     return;
   }
+  try { await c.setKey(await hmac(c._T, 'k|' + c._nh + '|' + c._na)); } catch (e) { try { c.close(); } catch (e2) {} return; }
   c._auth = true;
+  deviceInfo().then((ua) => { try { c.send({ type: 'meta', ua }); } catch (e) {} });
   setStatus('Bağlandın');
   addMsg('Odaya bağlandın', 'sys');
   if (Number.isInteger(m.n) && m.n >= 1 && m.n <= MAX_VIEWERS) {
@@ -593,6 +761,7 @@ async function onData(c, m) {
     if (!c._ok) { if (m.type === 'hello' && !c._ver) { c._ver = true; await admit(c, m); } return; }
     // İzleyiciden sadece sohbet içeriği kabul edilir (video kontrolü sadece oda sahibinde)
     if (m.type === 'ack') { gotAck(m.id); return; }
+    if (m.type === 'meta') { if (!c._ua) { c._ua = cleanUa(m.ua); if (c._ua) addMsg('Cihaz: ' + c._ua, 'sys'); } return; }
     if (m.type === 'pstart' || m.type === 'pchunk') {
       const ph = chunkIn(c, m);
       if (ph && ph.data.startsWith('data:image/jpeg;base64,')) {
