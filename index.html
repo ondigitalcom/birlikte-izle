@@ -87,6 +87,12 @@ html{overflow-x:hidden}
 .msg.stk,.msg.stk.me,.msg.img,.msg.img.me{background:none;color:var(--text);padding:2px 4px}
 .sticker-emoji{font-size:64px;line-height:1.1;animation:pop .35s ease-out}
 .sticker-cap{display:inline-block;background:var(--line);color:var(--text);border-radius:999px;padding:2px 10px;font-size:12px}
+.tools{display:flex;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
+.tools button{padding:6px 10px;font-size:13px}
+#cover{position:fixed;inset:0;z-index:200;background:#0b0d1c;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;font-size:56px}
+#cover[hidden]{display:none}
+#cover p{font-size:20px;margin:8px 0 4px}
+#cover small{font-size:14px;color:var(--dim)}
 .unseen{font-size:11px;opacity:.7;margin-top:2px}
 .alone{padding:6px 12px;font-size:12px;color:var(--accent);border-top:1px solid var(--line)}
 .msg.img img{display:block;max-width:100%;max-height:220px;border-radius:10px}
@@ -153,6 +159,7 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
     <p class="small" style="margin-top:16px">Evet'e basarak açtığın ve izlediğin içeriğin sorumluluğunun sana ait olduğunu kabul edersin.</p>
   </div>
 </div>
+<div id="cover" hidden><div>🙈<p>Ekran gizlendi</p><small>Göstermek için dokun</small></div></div>
 <div id="glow"><div class="gl" id="glowA"></div><div class="gl" id="glowB"></div></div>
 <header>
   <h1>Birlikte İzle</h1>
@@ -173,6 +180,7 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
     <div class="player"><div id="ytWrap"><div id="yt"></div></div><video id="vid" controls playsinline></video></div>
   </section>
   <aside class="chat">
+    <div class="tools"><button class="ghost" id="wipeBtn" type="button">Sohbeti sil</button><button class="ghost" id="hideBtn" type="button">Ekranı gizle</button></div>
     <div class="msgs" id="msgs"></div>
     <div class="alone" id="aloneNote" hidden>Şu an odada kimse aktif değil. Yazdıkların sadece sende görünür.</div>
     <div class="picker" id="picker">
@@ -442,7 +450,7 @@ function showGate() {
 
 // ---------- Uygulama (yaş onayından sonra başlar) ----------
 let appStarted = false;
-const APP_VER = '2026-11-17-g';
+const APP_VER = '2026-11-17-h';
 function startApp() {
 if (appStarted) return;
 appStarted = true;
@@ -692,7 +700,7 @@ async function admit(c, m) {
   let proof = '';
   try { proof = await hmac(c._T, 'h|' + c._nh + '|' + m.na); } catch (er) {}
   try { c.send({ type: 'you', n, proof }); } catch (er) {}
-  try { await c.setKey(await hmac(c._T, 'k|' + c._nh + '|' + m.na)); } catch (er) { try { c.close(); } catch (e2) {} return; }
+  try { const kh = await hmac(c._T, 'k|' + c._nh + '|' + m.na); await c.setKey(kh); showCode(kh); } catch (er) { try { c.close(); } catch (e2) {} return; }
   setStatus('Birlikte izliyorsunuz');
   addMsg('Biri odaya katıldı', 'sys');
   announce('join');
@@ -728,6 +736,15 @@ async function deviceInfo() {
 }
 const cleanUa = (u) => String(u || '').replace(/[^\p{L}\p{N} ·.\-_()+]/gu, '').slice(0, 80);
 
+// Güvenlik kodu: iki cihazda da aynı çıkmalı (ortak oturum anahtarından türer, anahtarın kendisi gösterilmez)
+async function showCode(kh) {
+  try {
+    const n = parseInt((await sha('kod|' + kh)).slice(0, 8), 16) % 1000000;
+    const t = String(n).padStart(6, '0');
+    addMsg('🔒 Güvenlik kodu: ' + t.slice(0, 3) + ' ' + t.slice(3) + '. Karşı tarafta da aynı kodu görüyorsan sohbet uçtan uca şifreli ve doğrudur.', 'sys');
+  } catch (e) {}
+}
+
 async function guestHello(c, m) {
   if (c._na || typeof m.nh !== 'string' || m.nh.length < 8 || m.nh.length > 64) return;
   if (m.v !== APP_VER) {
@@ -762,7 +779,7 @@ async function guestAuth(c, m) {
     try { c.close(); } catch (e) {}
     return;
   }
-  try { await c.setKey(await hmac(c._T, 'k|' + c._nh + '|' + c._na)); } catch (e) { try { c.close(); } catch (e2) {} return; }
+  try { const kh = await hmac(c._T, 'k|' + c._nh + '|' + c._na); await c.setKey(kh); showCode(kh); } catch (e) { try { c.close(); } catch (e2) {} return; }
   c._auth = true;
   deviceInfo().then((ua) => { try { c.send({ type: 'meta', ua }); } catch (e) {} });
   setStatus('Bağlandın');
@@ -793,6 +810,7 @@ async function onData(c, m) {
     }
     let o = null;
     if (m.type === 'chat' && typeof m.text === 'string') o = { type: 'chat', text: m.text.slice(0, 2000) };
+    else if (m.type === 'wipe') o = { type: 'wipe' };
     else if (m.type === 'sticker' && Number.isInteger(m.i) && m.i >= 0 && m.i < STICKERS.length) o = { type: 'sticker', i: m.i };
     else if (m.type === 'gif') { const u = gifUrl(m.url); if (u) o = { type: 'gif', url: u }; }
     if (!o) return;
@@ -1112,8 +1130,13 @@ const ytScript = document.createElement('script');
 ytScript.src = 'https://www.youtube.com/iframe_api';
 document.head.appendChild(ytScript);
 
+function wipeChat(note) {
+  $('msgs').textContent = '';
+  addMsg(note, 'sys');
+}
 function handle(m) {
   if (!m || typeof m !== 'object') return;
+  if (m.type === 'wipe') { wipeChat('Karşı taraf sohbeti sildi.'); return; }
   if (m.type === 'presence') {
     if (!isHost) {
       if (Number.isFinite(m.n)) setCount(Math.max(1, Math.min(99, m.n)));
@@ -1477,6 +1500,16 @@ $('imgSend').onclick = () => {
     addMsg('Görsel gönderilemedi: ' + ((e && e.message) || 'bilinmeyen hata'), 'sys');
   }
 };
+$('wipeBtn').onclick = () => {
+  if (!confirm('Sohbetteki tüm mesajlar ve görseller iki tarafta da silinsin mi?')) return;
+  wipeChat('Sohbeti sildin.');
+  send({ type: 'wipe' });
+};
+const cover = $('cover');
+$('hideBtn').onclick = () => { cover.hidden = false; };
+cover.onclick = () => { cover.hidden = true; };
+// Uygulamadan çıkınca (başka uygulamaya geçince) odada biri varsa ekran otomatik gizlenir
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && live()) cover.hidden = false; });
 setInterval(() => { $('aloneNote').hidden = live(); }, 1000);
 $('aloneNote').hidden = live();
 $('txt').onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
