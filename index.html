@@ -87,6 +87,8 @@ html{overflow-x:hidden}
 .msg.stk,.msg.stk.me,.msg.img,.msg.img.me{background:none;color:var(--text);padding:2px 4px}
 .sticker-emoji{font-size:64px;line-height:1.1;animation:pop .35s ease-out}
 .sticker-cap{display:inline-block;background:var(--line);color:var(--text);border-radius:999px;padding:2px 10px;font-size:12px}
+.unseen{font-size:11px;opacity:.7;margin-top:2px}
+.alone{padding:6px 12px;font-size:12px;color:var(--accent);border-top:1px solid var(--line)}
 .msg.img img{display:block;max-width:100%;max-height:220px;border-radius:10px}
 @keyframes pop{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
 @media(prefers-reduced-motion:reduce){.sticker-emoji{animation:none}}
@@ -172,6 +174,7 @@ footer{display:flex;justify-content:center;padding:4px 16px 24px;position:relati
   </section>
   <aside class="chat">
     <div class="msgs" id="msgs"></div>
+    <div class="alone" id="aloneNote" hidden>Şu an odada kimse aktif değil. Yazdıkların sadece sende görünür.</div>
     <div class="picker" id="picker">
       <div class="tabs">
         <button class="tab on" data-t="E">Emoji</button>
@@ -439,7 +442,7 @@ function showGate() {
 
 // ---------- Uygulama (yaş onayından sonra başlar) ----------
 let appStarted = false;
-const APP_VER = '2026-11-17-e';
+const APP_VER = '2026-11-17-g';
 function startApp() {
 if (appStarted) return;
 appStarted = true;
@@ -465,6 +468,7 @@ function addMsg(text, cls, who) {
   d.appendChild(document.createTextNode(text));
   $('msgs').appendChild(d);
   $('msgs').scrollTop = 1e9;
+  return d;
 }
 
 // ---------- Bağlantı (PeerJS) ----------
@@ -570,29 +574,43 @@ function diag(t) {
   addMsg('⚠️ ' + t, 'sys');
 }
 const waiting = {};
-function track(mid, ms) {
-  waiting[mid] = setTimeout(() => {
+function arm(mid) {
+  const w = waiting[mid];
+  if (!w) return;
+  w.t = setTimeout(() => {
+    if (w.retry && w.n++ < 2) { try { w.retry(); } catch (e) {} arm(mid); return; }
     delete waiting[mid];
     addMsg('Mesaj karşı tarafa ulaşmadı. Bağlantıyı kontrol et, gerekirse iki cihazda da sayfayı yenile.', 'sys');
-  }, ms || 6000);
+  }, w.ms);
 }
-function gotAck(id) { if (waiting[id]) { clearTimeout(waiting[id]); delete waiting[id]; } }
+function track(mid, ms, retry, okText) { waiting[mid] = { ms: ms || 6000, n: 0, retry, okText }; arm(mid); }
+function gotAck(id) {
+  const w = waiting[id];
+  if (!w) return;
+  clearTimeout(w.t); delete waiting[id];
+  if (w.okText) addMsg(w.okText, 'sys');
+}
 function ack(c, mid) {
   if (typeof mid === 'string' && mid && mid.length <= 16) { try { c.send({ type: 'ack', id: mid }); } catch (e) {} }
 }
 function sendT(m) { m.mid = rnd(6); track(m.mid, 6000); send(m); }
 
 const CHUNK = 12000;
-function emitPhoto(o, except, mid) {
-  const id = rnd(6), parts = [];
+function emitPhoto(o, except, mid, id) {
+  id = id || rnd(6);
+  const parts = [];
   for (let i = 0; i < o.data.length; i += CHUNK) parts.push(o.data.slice(i, i + CHUNK));
   broadcast({ type: 'pstart', id, cnt: parts.length, adult: !!o.adult, role: o.role, vn: Number.isInteger(o.n) ? o.n : 0, mid: mid || '' }, except);
-  parts.forEach((d, i) => broadcast({ type: 'pchunk', id, i, d }, except));
+  parts.forEach((d, i) => setTimeout(() => broadcast({ type: 'pchunk', id, i, d }, except), 60 * (i + 1)));
+  return id;
 }
 function chunkIn(c, m) {
   c._inc = c._inc || {};
   if (m.type === 'pstart') {
     if (typeof m.id !== 'string' || m.id.length > 16 || !Number.isInteger(m.cnt) || m.cnt < 1 || m.cnt > 200) return null;
+    c._done = c._done || new Set();
+    if (c._done.has(m.id)) { ack(c, typeof m.mid === 'string' ? m.mid.slice(0, 16) : ''); return null; }
+    if (c._inc[m.id]) return null;
     if (Object.keys(c._inc).length >= 3) return null;
     c._inc[m.id] = { cnt: m.cnt, adult: !!m.adult, mid: typeof m.mid === 'string' ? m.mid.slice(0, 16) : '',
       role: typeof m.role === 'string' ? m.role.slice(0, 12) : 'izleyici', vn: m.vn, parts: [], got: 0, len: 0 };
@@ -604,6 +622,7 @@ function chunkIn(c, m) {
   if (t.len > 1.6e6) { delete c._inc[m.id]; return null; }
   if (t.got < t.cnt) return null;
   delete c._inc[m.id];
+  c._done.add(m.id); if (c._done.size > 50) c._done.delete(c._done.values().next().value);
   return { type: 'photo', data: t.parts.join(''), adult: t.adult, mid: t.mid, role: t.role, n: t.vn };
 }
 
@@ -1228,12 +1247,10 @@ async function doSearch() {
 function sendChat() {
   const t = $('txt').value.trim();
   if (!t) return;
-  if (!live()) {
-    addMsg('Karşı taraf bağlı değil, mesaj gitmedi. Üstteki bağlantı durumunu kontrol et.', 'sys');
-    return;
-  }
-  addMsg(t, 'me', myRole);
-  sendT({ type: 'chat', text: t, role: isHost ? 'kurucu' : 'izleyici' });
+  const alone = !live();
+  const el = addMsg(t, 'me', myRole);
+  if (alone) markAlone(el);
+  else sendT({ type: 'chat', text: t, role: isHost ? 'kurucu' : 'izleyici' });
   $('txt').value = '';
   $('txt').focus();
 }
@@ -1263,6 +1280,15 @@ const STICKERS = [
   ['👀', 'Bakıyorum'], ['🎉', 'Kutlama'], ['✋', 'Bir dk durdur']
 ];
 
+// Odada kimse yokken de yazabilirsin (deneme için): mesaj sadece sende görünür ve "görülmedi" diye işaretlenir
+function markAlone(el) {
+  if (!el) return;
+  const n = document.createElement('div');
+  n.className = 'unseen';
+  n.textContent = 'Kimse aktif değil, görülmedi';
+  el.appendChild(n);
+  $('msgs').scrollTop = 1e9;
+}
 function ensureConn() {
   if (live()) return true;
   addMsg('Karşı taraf bağlı değil, mesaj gitmedi. Üstteki bağlantı durumunu kontrol et.', 'sys');
@@ -1277,6 +1303,7 @@ function pushMsg(d, who) {
   }
   $('msgs').appendChild(d);
   $('msgs').scrollTop = 1e9;
+  return d;
 }
 function addSticker(st, cls, who) {
   const d = document.createElement('div');
@@ -1289,7 +1316,7 @@ function addSticker(st, cls, who) {
   c.textContent = st[1];
   d.appendChild(e);
   d.appendChild(c);
-  pushMsg(d, who);
+  return pushMsg(d, who);
 }
 // Sadece güvenli (https) resim linklerini kabul eder; giphy sayfa linklerini dosya linkine çevirir
 function gifUrl(u) {
@@ -1315,7 +1342,7 @@ function addGif(url, cls, who) {
   im.onerror = () => { im.remove(); d.appendChild(document.createTextNode('GIF yüklenemedi')); };
   im.src = url;
   d.appendChild(im);
-  pushMsg(d, who);
+  return pushMsg(d, who);
 }
 
 STICKERS.forEach((st, i) => {
@@ -1325,9 +1352,10 @@ STICKERS.forEach((st, i) => {
   b.firstChild.textContent = st[0];
   b.lastChild.textContent = st[1];
   b.onclick = () => {
-    if (!ensureConn()) return;
-    addSticker(st, 'me', myRole);
-    sendT({ type: 'sticker', i, role: isHost ? 'kurucu' : 'izleyici' });
+    const alone = !live();
+    const el = addSticker(st, 'me', myRole);
+    if (alone) markAlone(el);
+    else sendT({ type: 'sticker', i, role: isHost ? 'kurucu' : 'izleyici' });
     $('picker').classList.remove('open');
   };
   $('pS').appendChild(b);
@@ -1339,9 +1367,10 @@ $('gifSend').onclick = () => {
     addMsg('Güvenlik için sadece giphy.com ve tenor.com GIF linkleri kabul edilir.', 'sys');
     return;
   }
-  if (!ensureConn()) return;
-  addGif(u, 'me', myRole);
-  sendT({ type: 'gif', url: u, role: isHost ? 'kurucu' : 'izleyici' });
+  const alone = !live();
+  const el = addGif(u, 'me', myRole);
+  if (alone) markAlone(el);
+  else sendT({ type: 'gif', url: u, role: isHost ? 'kurucu' : 'izleyici' });
   $('gifUrl').value = '';
   $('picker').classList.remove('open');
 };
@@ -1375,7 +1404,7 @@ function addPhoto(data, adult, mine, who) {
     im.onclick = () => { if (!box.classList.contains('blurred')) box.classList.add('blurred'); };
   }
   d.appendChild(box);
-  pushMsg(d, who);
+  return pushMsg(d, who);
 }
 
 function shrink(file) {
@@ -1383,7 +1412,7 @@ function shrink(file) {
     const url = URL.createObjectURL(file);
     const im = new Image();
     im.onload = () => {
-      let max = 1024, q = 0.7, out = '';
+      let max = 960, q = 0.65, out = '';
       for (let i = 0; i < 6; i++) {
         const r = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
         const c = document.createElement('canvas');
@@ -1394,7 +1423,7 @@ function shrink(file) {
         x.fillRect(0, 0, c.width, c.height);
         x.drawImage(im, 0, 0, c.width, c.height);
         out = c.toDataURL('image/jpeg', q);
-        if (out.length < 5e5) break;
+        if (out.length < 2.5e5) break;
         max *= 0.75; q = Math.max(0.4, q - 0.08);
       }
       URL.revokeObjectURL(url);
@@ -1422,18 +1451,34 @@ $('imgFile').onchange = async () => {
   }
 };
 $('imgSend').onclick = () => {
-  if (!pendingPhoto || !ensureConn()) return;
-  const adult = $('imgAdult').checked;
-  addPhoto(pendingPhoto, adult, true, myRole);
-  const pm = rnd(6); track(pm, 25000);
-  emitPhoto({ data: pendingPhoto, adult, role: isHost ? 'kurucu' : 'izleyici' }, null, pm);
-  pendingPhoto = null;
-  $('imgFile').value = '';
-  $('imgPrev').hidden = true;
-  $('imgAdult').checked = false;
-  $('imgSend').disabled = true;
-  $('picker').classList.remove('open');
+  if (!pendingPhoto) return;
+  try {
+    const adult = $('imgAdult').checked;
+    const data = pendingPhoto;
+    const role = isHost ? 'kurucu' : 'izleyici';
+    const alone = !live();
+    const el = addPhoto(data, adult, true, myRole);
+    if (alone) markAlone(el);
+    else {
+      const pm = rnd(6);
+      let pid = '';
+      const o = { data, adult, role };
+      track(pm, 12000, () => { emitPhoto(o, null, pm, pid); }, 'Görsel iletildi ✓');
+      pid = emitPhoto(o, null, pm);
+      addMsg('Görsel gönderiliyor…', 'sys');
+    }
+    pendingPhoto = null;
+    $('imgFile').value = '';
+    $('imgPrev').hidden = true;
+    $('imgAdult').checked = false;
+    $('imgSend').disabled = true;
+    $('picker').classList.remove('open');
+  } catch (e) {
+    addMsg('Görsel gönderilemedi: ' + ((e && e.message) || 'bilinmeyen hata'), 'sys');
+  }
 };
+setInterval(() => { $('aloneNote').hidden = live(); }, 1000);
+$('aloneNote').hidden = live();
 $('txt').onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
 
 function paintMode() {
