@@ -1,0 +1,1699 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Birlikte İzle</title>
+<style>
+:root{--bg:#14172b;--panel:#1e2340;--line:#2c3256;--text:#eceaf5;--dim:#9a9cc0;--accent:#f2c14e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,sans-serif;min-height:100vh}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+h1{font-size:18px;margin:0}
+.status{color:var(--dim);font-size:14px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
+@media(max-width:820px){main{grid-template-columns:minmax(0,1fr)}}
+.stage{display:flex;flex-direction:column;gap:12px}
+.player{aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden}
+.player iframe{width:100%;height:100%}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:8px;font:inherit}
+button{background:var(--accent);color:#1a1630;border:0;padding:10px 16px;border-radius:8px;font:inherit;font-weight:700;cursor:pointer}
+button.ghost{background:var(--panel);color:var(--text);border:1px solid var(--line)}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chat{background:var(--panel);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;height:420px}
+.msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+.msg{max-width:85%;padding:8px 12px;border-radius:10px;background:var(--line);word-wrap:break-word}
+.msg.me{align-self:flex-end;background:var(--accent);color:#1a1630}
+.msg.sys{align-self:center;background:none;color:var(--dim);font-size:13px;text-align:center}
+.chat .row{padding:10px;border-top:1px solid var(--line)}
+
+body{overflow-x:hidden}
+header,main{position:relative;z-index:1}
+#glow{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.2;transition:opacity 1.5s}
+#glow.on{opacity:.6}
+.gl{position:absolute;inset:-10%;background-size:cover;background-position:center;filter:blur(55px) saturate(1.7);opacity:0;transition:opacity 2.5s}
+#intro{position:fixed;inset:0;z-index:100;background:radial-gradient(ellipse at 50% 45%,#161a33 0%,#0a0c1a 70%);display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;overflow:hidden;transition:opacity .8s ease}
+#intro.out{opacity:0;pointer-events:none}
+.fr{position:relative;width:min(78vw,440px);aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;animation:frin 1.4s .1s cubic-bezier(.2,.7,.2,1) both;transition:transform .8s ease}
+#intro.out .fr{transform:scale(1.08)}
+.c{position:absolute;width:24px;height:24px;border:0 solid var(--accent);opacity:0;animation:cin .9s .35s cubic-bezier(.2,.7,.2,1) forwards}
+.tl{top:0;left:0;border-top-width:2px;border-left-width:2px;--dx:18px;--dy:18px}
+.tr{top:0;right:0;border-top-width:2px;border-right-width:2px;--dx:-18px;--dy:18px}
+.bl{bottom:0;left:0;border-bottom-width:2px;border-left-width:2px;--dx:18px;--dy:-18px}
+.br{bottom:0;right:0;border-bottom-width:2px;border-right-width:2px;--dx:-18px;--dy:-18px}
+.tx{display:flex;flex-direction:column;align-items:center}
+.l1{font-size:clamp(24px,7vw,38px);font-weight:700;color:var(--text);white-space:nowrap;opacity:0;filter:blur(8px);letter-spacing:.38em;margin-right:-.38em;animation:l1in 1.5s .9s cubic-bezier(.2,.7,.2,1) forwards}
+.rule{height:1px;width:0;margin:14px 0 12px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:rule .9s 1.9s ease-out forwards}
+.l2{font-size:clamp(12px,3.4vw,15px);letter-spacing:.6em;margin-right:-.6em;color:var(--accent);opacity:0;transform:translateY(6px);animation:l2in .9s 2.1s ease-out forwards}
+@keyframes frin{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+@keyframes cin{from{opacity:0;transform:translate(var(--dx),var(--dy))}to{opacity:1;transform:none}}
+@keyframes l1in{to{opacity:1;filter:blur(0);letter-spacing:.08em;margin-right:-.08em}}
+@keyframes rule{to{width:min(34%,110px)}}
+@keyframes l2in{to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.fr,.c,.l1,.rule,.l2{animation-duration:.01s!important;animation-delay:0s!important}.gl{transition:none}}
+
+.who{display:block;font-size:12px;font-weight:700;opacity:.75;margin-bottom:2px}
+.emojis{display:none;grid-template-columns:repeat(6,1fr);gap:4px;padding:8px 10px;border-top:1px solid var(--line)}
+.emojis.open{display:grid}
+.emojis button{background:none;border:0;padding:6px 0;font-size:22px;line-height:1;border-radius:8px}
+.emojis button:active{background:var(--line)}
+#emojiBtn{padding:10px 12px;font-size:18px}
+
+.player>div,.player video{width:100%;height:100%}
+#vid{display:none;background:#000}
+
+#gate{position:fixed;inset:0;z-index:90;background:#0b0d1c;display:none;align-items:center;justify-content:center;padding:24px}
+.gbox{max-width:420px;text-align:center}
+.gbox h2{font-size:24px;margin:0 0 12px}
+.gbox p{color:var(--dim);margin:0 0 14px}
+.gbox .small{font-size:13px}
+.gbtns{display:flex;flex-direction:column;gap:10px;margin-top:20px}
+
+html{overflow-x:hidden}
+#glow{overflow:hidden}
+.stage,.chat{min-width:0;max-width:100%}
+.chat .row input{width:0}
+.chat .row button{flex:none}
+.cstat{padding:8px 12px;font-size:13px;color:var(--dim);border-bottom:1px solid var(--line)}
+
+.picker{display:none;border-top:1px solid var(--line);max-height:210px;overflow:auto}
+.picker.open{display:block}
+.tabs{display:flex;gap:6px;padding:8px 10px 0}
+.tab{background:var(--line);color:var(--dim);padding:6px 12px;font-size:14px}
+.tab.on{background:var(--accent);color:#1a1630}
+.pane{display:none;padding:8px 10px}
+.pane.on{display:grid}
+#pE{grid-template-columns:repeat(6,1fr);gap:4px}
+#pE button{background:none;border:0;padding:6px 0;font-size:22px;line-height:1;border-radius:8px}
+#pE button:active{background:var(--line)}
+#pS{grid-template-columns:repeat(3,1fr);gap:8px}
+#pS button{background:var(--line);color:var(--text);padding:8px 4px;border-radius:10px;font-weight:400;font-size:12px;line-height:1.2}
+#pS button b{display:block;font-size:30px;line-height:1.2;font-weight:400}
+#pG.on{display:block}
+#pG .row{margin-bottom:8px}
+#pG p{margin:0;font-size:12px;color:var(--dim)}
+#pG a{color:var(--accent)}
+.msg.stk,.msg.stk.me,.msg.img,.msg.img.me{background:none;color:var(--text);padding:2px 4px}
+.sticker-emoji{font-size:64px;line-height:1.1;animation:pop .35s ease-out}
+.sticker-cap{display:inline-block;background:var(--line);color:var(--text);border-radius:999px;padding:2px 10px;font-size:12px}
+.tools{display:flex;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
+.tools button{padding:6px 10px;font-size:13px}
+#wx{position:fixed;inset:0;width:100%;height:100%;z-index:5;pointer-events:none}
+#cover{position:fixed;inset:0;z-index:200;background:#0b0d1c;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;font-size:56px}
+#cover[hidden]{display:none}
+#cover p{font-size:20px;margin:8px 0 4px}
+#cover small{font-size:14px;color:var(--dim)}
+.unseen{font-size:11px;opacity:.7;margin-top:2px}
+.alone{padding:6px 12px;font-size:12px;color:var(--accent);border-top:1px solid var(--line)}
+.msg.img img{display:block;max-width:100%;max-height:220px;border-radius:10px}
+@keyframes pop{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
+@media(prefers-reduced-motion:reduce){.sticker-emoji{animation:none}}
+
+.tabs{flex-wrap:wrap}
+.filebtn{display:inline-block;background:var(--line);color:var(--text);padding:10px 16px;border-radius:8px;font-weight:700;cursor:pointer}
+.chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;margin:6px 0}
+.chk input{flex:none;width:18px;height:18px;margin-top:2px;accent-color:#f2c14e}
+#imgPrev{display:block;max-height:90px;max-width:100%;border-radius:8px;margin:6px 0}
+#pI.on{display:block}
+#pI p{margin:0;font-size:12px;color:var(--dim)}
+#imgSend:disabled{opacity:.4}
+.photo{position:relative;overflow:hidden;border-radius:10px;max-width:100%}
+.photo img{display:block;max-width:100%;max-height:260px}
+.photo.adult{min-width:200px}
+.photo.adult img{min-width:200px;min-height:140px;object-fit:cover}
+.photo.blurred img{filter:blur(28px) brightness(.7);transform:scale(1.15)}
+.photo .warn{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:10px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+.photo.blurred .warn{display:flex}
+.photo .warn b{font-size:18px}
+.photo .warn small{font-size:12px}
+.photo .warn button{padding:6px 12px;font-size:13px;text-shadow:none}
+
+header{position:relative;padding-right:110px}
+#cnt{position:absolute;top:12px;right:16px;font-size:14px;font-weight:700;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 10px;white-space:nowrap}
+.chat{transform:translateZ(0);isolation:isolate}
+#txt{-webkit-user-select:text;user-select:text;-webkit-appearance:none;appearance:none;font-size:16px;touch-action:manipulation}
+#lk{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px 8px;font:inherit;font-size:14px}
+#res{display:none;flex-direction:column;gap:6px;max-height:300px;overflow:auto}
+#res.open{display:flex}
+#res p{margin:0;color:var(--dim);font-size:13px}
+.ri{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);color:var(--text);padding:6px;text-align:left;font-weight:400;border-radius:8px}
+.ri img{width:96px;height:54px;object-fit:cover;border-radius:6px;flex:none;background:#000}
+.ri span{min-width:0}
+.ri b{font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ri small{color:var(--dim)}
+.ver{color:var(--dim);font-size:12px;align-self:center;margin-left:12px}
+footer{display:flex;flex-wrap:wrap;gap:6px 0;justify-content:center;padding:4px 16px 24px;position:relative;z-index:1}
+#rp{position:fixed;inset:0;z-index:95;background:rgba(5,6,16,.7);display:none;align-items:center;justify-content:center;padding:16px}
+#rp.open{display:flex}
+.rbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;width:100%;max-width:420px}
+.rbox h2{font-size:18px;margin:0 0 10px}
+.rbox textarea{width:100%;min-height:140px;max-height:50vh;resize:vertical;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:8px;font:inherit;font-size:16px}
+.rbox textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rbox p{margin:8px 0 0;font-size:12px;color:var(--dim)}
+.rbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+</style>
+</head>
+<body>
+<div id="intro" aria-label="OP-N Digital Sunar">
+  <div class="fr">
+    <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+    <div class="tx" aria-hidden="true">
+      <div class="l1">OP-N Digital</div>
+      <div class="rule"></div>
+      <div class="l2">SUNAR</div>
+    </div>
+  </div>
+</div>
+<div id="gate">
+  <div class="gbox">
+    <h2>Yaş doğrulaması</h2>
+    <p>Bu sitede kullanıcıların kendi açtığı videolar yer alabilir ve bazı içerikler yetişkinlere yönelik olabilir. Devam etmek için 18 yaşından büyük olmalısın.</p>
+    <p><b>18 yaşından büyük müsün?</b></p>
+    <div class="gbtns">
+      <button id="gYes">Evet, 18 yaşından büyüğüm</button>
+      <button class="ghost" id="gNo">Hayır</button>
+    </div>
+    <p class="small" style="margin-top:16px">Evet'e basarak açtığın ve izlediğin içeriğin sorumluluğunun sana ait olduğunu kabul edersin.</p>
+  </div>
+</div>
+<div id="cover" hidden><div>🙈<p>Ekran gizlendi</p><small>Göstermek için dokun</small></div></div>
+<canvas id="wx" aria-hidden="true"></canvas>
+<div id="glow"><div class="gl" id="glowA"></div><div class="gl" id="glowB"></div></div>
+<header>
+  <h1>Birlikte İzle</h1>
+  <div class="status" id="st">Bağlanıyor…</div>
+  <button class="ghost" id="mode" type="button" hidden aria-pressed="false">2 kişilik oda</button>
+  <select id="lk" hidden aria-label="Link türü"><option value="k" selected>Tekli link (24 saat)</option><option value="g">Toplu link (48 saat)</option></select>
+  <button class="ghost" id="copy" hidden>Linki kopyala</button>
+  <div id="cnt" aria-live="polite">👥 1 aktif</div>
+</header>
+<main>
+  <section class="stage">
+    <div class="row">
+      <input id="url" placeholder="Ara ya da YouTube / video linki yapıştır" autocomplete="off">
+      <button id="load">Yükle</button>
+      <button class="ghost" id="srch">Ara</button>
+    </div>
+    <div id="res"></div>
+    <div class="player"><div id="ytWrap"><div id="yt"></div></div><video id="vid" controls playsinline></video></div>
+  </section>
+  <aside class="chat">
+    <div class="tools"><button class="ghost" id="wipeBtn" type="button">Sohbeti sil</button><button class="ghost" id="hideBtn" type="button">Ekranı gizle</button></div>
+    <div class="msgs" id="msgs"></div>
+    <div class="alone" id="aloneNote" hidden>Şu an odada kimse aktif değil. Yazdıkların sadece sende görünür.</div>
+    <div class="picker" id="picker">
+      <div class="tabs">
+        <button class="tab on" data-t="E">Emoji</button>
+        <button class="tab" data-t="S">Sticker</button>
+        <button class="tab" data-t="G">GIF</button>
+        <button class="tab" data-t="I">Görsel</button>
+      </div>
+      <div class="pane on" id="pE"></div>
+      <div class="pane" id="pS"></div>
+      <div class="pane" id="pI">
+        <div class="row">
+          <label class="filebtn" for="imgFile">Görsel seç</label>
+          <input type="file" id="imgFile" accept="image/*" hidden>
+          <button id="imgSend" disabled>Gönder</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="imgAdult"><span>Bu görsel 18+ içerik içeriyor. Karşı tarafta bulanık görünür ve açmadan önce uyarı verilir.</span></label>
+        <img id="imgPrev" alt="Seçilen görsel" hidden>
+        <p>Görseller küçültülerek gönderilir, konum gibi bilgileri silinir.</p>
+      </div>
+      <div class="pane" id="pG">
+        <div class="row">
+          <input id="gifUrl" placeholder="GIF linkini yapıştır" autocomplete="off">
+          <button id="gifSend">Gönder</button>
+        </div>
+        <p><a href="https://giphy.com" target="_blank" rel="noopener">GIPHY'de GIF bul</a>, linkini kopyala ve buraya yapıştır. Güvenlik için sadece giphy.com ve tenor.com linkleri kabul edilir.</p>
+      </div>
+    </div>
+    <div class="row">
+      <button class="ghost" id="emojiBtn" aria-label="Emoji ekle">😊</button>
+      <input id="txt" type="text" placeholder="Mesaj yaz" autocomplete="off" enterkeyhint="send">
+      <button id="sendBtn">Gönder</button>
+    </div>
+  </aside>
+</main>
+
+<footer><button class="ghost" id="rpBtn" type="button">Sorun bildir</button><span class="ver" id="ver"></span><span class="ver" id="wxs"></span></footer>
+<div id="rp" role="dialog" aria-modal="true" aria-labelledby="rpT">
+  <div class="rbox">
+    <h2 id="rpT">Sorun bildir</h2>
+    <textarea id="rpTxt" maxlength="2000" placeholder="Yaşadığın sorunu buraya yaz"></textarea>
+    <p id="rpMsg">Gönder'e basınca mail uygulaman yazdıklarınla açılır, mail'i oradan göndermen yeterli.</p>
+    <div class="rbtns">
+      <button class="ghost" id="rpCancel" type="button">Vazgeç</button>
+      <button id="rpSend" type="button">Gönder</button>
+    </div>
+  </div>
+</div>
+<script>
+// ---------- Aktarma katmanı: herkese açık MQTT aracıları üzerinden, uçtan uca şifreli ----------
+// Doğrudan (P2P) bağlantı mobil veride ve farklı ağlarda kurulamadığı için tüm trafik aracı sunucudan geçer.
+// Aracı sunucu sadece şifreli veri görür; anahtar giriş doğrulamasından türetilir ve ağa hiç gönderilmez.
+const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
+const RTE = new TextEncoder(), RTD = new TextDecoder();
+function rndHex(n) { const a = new Uint8Array(n || 16); crypto.getRandomValues(a); return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join(''); }
+function b64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); }
+function unb64(t) { const s = atob(t), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+function loadMqtt() {
+  return new Promise((res) => {
+    if (window.mqtt) return res(true);
+    const srcs = ['https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js', 'https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
+    const next = () => {
+      const u = srcs.shift();
+      if (!u) return res(false);
+      const sc = document.createElement('script');
+      sc.src = u;
+      sc.onload = () => (window.mqtt ? res(true) : next());
+      sc.onerror = next;
+      document.head.appendChild(sc);
+    };
+    next();
+  });
+}
+class RelayConn {
+  constructor(p, cid, out) {
+    this.p = p; this.cid = cid; this.out = out;
+    this.open = false; this.closed = false; this.h = {};
+    this.key = null; this.tx = 0; this.maxRx = 0; this.rxSeen = new Set(); this.pend = [];
+    this._sq = Promise.resolve(); this._rq = Promise.resolve();
+  }
+  on(e, f) { this.h[e] = f; return this; }
+  emit(e, a) { try { this.h[e] && this.h[e](a); } catch (er) {} }
+  _open() { if (this.open || this.closed) return; this.open = true; clearTimeout(this._to); this.emit('open'); }
+  async setKey(hexKey) {
+    const raw = new Uint8Array(hexKey.match(/../g).map((x) => parseInt(x, 16)));
+    this.key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    const q = this.pend; this.pend = [];
+    q.forEach((e) => this._in(e));
+  }
+  send(m) {
+    if (this.closed) return;
+    const key = this.key; // anahtar, send çağrıldığı andaki duruma göre
+    this._sq = this._sq.then(() => this._send('d', m, key)).catch(() => {});
+  }
+  async _send(k, m, key) {
+    const env = { k, c: this.cid, u: rndHex(6) };
+    if (key) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const pt = RTE.encode(JSON.stringify({ s: ++this.tx, m }));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: RTE.encode(this.cid + (this.p.isHostPeer ? 'h' : 'g')) }, key, pt);
+      env.e = 1; env.iv = b64(iv); env.d = b64(new Uint8Array(ct));
+    } else env.d = m;
+    this.p.pub(this.out, env);
+  }
+  close() {
+    if (this.closed) return;
+    const key = this.key;
+    this._sq = this._sq.then(() => this._send('x', 0, key)).catch(() => {});
+    this.closed = true; this.open = false;
+    clearTimeout(this._to);
+    this.emit('close');
+  }
+  _in(env) {
+    if (this.closed) return;
+    if (!this.open && !this.p.isHostPeer) this._open();
+    this._rq = this._rq.then(() => this._proc(env)).catch(() => {});
+  }
+  async _proc(env) {
+    let m;
+    if (env.e) {
+      if (!this.key) { if (this.pend.length < 200) this.pend.push(env); return; }
+      if (typeof env.iv !== 'string' || typeof env.d !== 'string') return;
+      let o;
+      try {
+        const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(env.iv), additionalData: RTE.encode(this.cid + (this.p.isHostPeer ? 'g' : 'h')) }, this.key, unb64(env.d));
+        o = JSON.parse(RTD.decode(pt));
+      } catch (e) { return; }
+      if (!o || !Number.isInteger(o.s) || o.s <= this.maxRx - 1000 || this.rxSeen.has(o.s)) return;
+      this.rxSeen.add(o.s);
+      if (o.s > this.maxRx) this.maxRx = o.s;
+      if (this.rxSeen.size > 3000) for (const x of Array.from(this.rxSeen)) { if (x <= this.maxRx - 1000) this.rxSeen.delete(x); }
+      m = o.m;
+    } else {
+      if (this.key) return; // anahtar kurulduktan sonra şifresiz mesaj kabul edilmez
+      m = env.d;
+    }
+    if (env.k === 'x') { this.closed = true; this.open = false; delete this.p.conns[this.cid]; this.emit('close'); return; }
+    if (env.k === 'd') this.emit('data', m);
+  }
+}
+class RelayPeer {
+  constructor(id) {
+    this.id = id || ('c' + rndHex(8));
+    this.isHostPeer = !!id;
+    this.h = {}; this.conns = {}; this.topics = new Set(); this.clients = [];
+    this.seen = new Set(); this.seenQ = [];
+    this.disconnected = true; this.destroyed = false; this._opened = false;
+    loadMqtt().then((ok) => {
+      if (!ok) { this.emit('error', { type: 'mqtt-yuklenemedi' }); return; }
+      if (this.isHostPeer) this.topics.add(this._t(this.id, 'h'));
+      BROKERS.forEach((u) => this._broker(u));
+    });
+    setTimeout(() => { if (!this._opened) this.emit('error', { type: 'aracı-sunucuya-ulasilamadi' }); }, 20000);
+  }
+  _t(host, tail) { return 'opn-birlikte/' + host + '/' + tail; }
+  on(e, f) { this.h[e] = f; return this; }
+  emit(e, a) { try { this.h[e] && this.h[e](a); } catch (er) {} }
+  _broker(url) {
+    let cl;
+    try { cl = mqtt.connect(url, { clientId: 'opn' + rndHex(8), clean: true, keepalive: 30, connectTimeout: 8000, reconnectPeriod: 3000 }); } catch (e) { return; }
+    const rec = { cl, up: false };
+    this.clients.push(rec);
+    cl.on('connect', () => { rec.up = true; this.topics.forEach((t) => { try { cl.subscribe(t, { qos: 1 }); } catch (e) {} }); this._state(); });
+    cl.on('close', () => { rec.up = false; this._state(); });
+    cl.on('offline', () => { rec.up = false; this._state(); });
+    cl.on('error', () => {});
+    cl.on('message', (topic, payload) => this._msg(topic, payload));
+  }
+  _state() {
+    const up = this.clients.some((r) => r.up);
+    if (up) { this.disconnected = false; if (!this._opened) { this._opened = true; this.emit('open', this.id); } }
+    else if (this._opened && !this.disconnected) { this.disconnected = true; this.emit('disconnected'); }
+  }
+  sub(t) {
+    this.topics.add(t);
+    const ps = this.clients.filter((r) => r.up).map((r) => new Promise((res) => { try { r.cl.subscribe(t, { qos: 1 }, () => res()); } catch (e) { res(); } }));
+    return Promise.race([Promise.all(ps), new Promise((r) => setTimeout(r, 3000))]);
+  }
+  pub(topic, env) {
+    const s = JSON.stringify(env);
+    this.clients.forEach((r) => { if (r.up) { try { r.cl.publish(topic, s, { qos: 1 }); } catch (e) {} } });
+  }
+  reconnect() { this.clients.forEach((r) => { if (!r.up) { try { r.cl.reconnect(); } catch (e) {} } }); }
+  connect(hostId) {
+    const cid = rndHex(8);
+    const c = new RelayConn(this, cid, this._t(hostId, 'h'));
+    this.conns[cid] = c;
+    const inbox = this._t(hostId, 'c/' + this.id);
+    const hello = () => { if (!c.open && !c.closed) this.pub(c.out, { k: 'o', c: cid, f: this.id, u: rndHex(6) }); };
+    c._to = setTimeout(() => {
+      if (!c.open && !c.closed) { c.closed = true; delete this.conns[cid]; this.emit('error', { type: 'peer-unavailable' }); }
+    }, 8000);
+    this.sub(inbox).then(() => { hello(); setTimeout(hello, 2500); setTimeout(hello, 5000); });
+    return c;
+  }
+  _msg(topic, payload) {
+    let env;
+    try { env = JSON.parse(RTD.decode(payload)); } catch (e) { return; }
+    if (!env || typeof env !== 'object' || typeof env.u !== 'string' || env.u.length > 24 || typeof env.c !== 'string' || env.c.length > 40) return;
+    if (this.seen.has(env.u)) return;
+    this.seen.add(env.u); this.seenQ.push(env.u);
+    if (this.seenQ.length > 3000) this.seen.delete(this.seenQ.shift());
+    if (this.isHostPeer) {
+      if (topic !== this._t(this.id, 'h')) return;
+      if (env.k === 'o') {
+        if (typeof env.f !== 'string' || !env.f || env.f.length > 40) return;
+        const old = this.conns[env.c];
+        if (old) { this.pub(old.out, { k: 'a', c: env.c, u: rndHex(6) }); return; }
+        const c = new RelayConn(this, env.c, this._t(this.id, 'c/' + env.f));
+        this.conns[env.c] = c;
+        this.emit('connection', c);
+        setTimeout(() => { c._open(); this.pub(c.out, { k: 'a', c: env.c, u: rndHex(6) }); }, 0);
+        return;
+      }
+      const c = this.conns[env.c];
+      if (c) c._in(env);
+    } else {
+      const c = this.conns[env.c];
+      if (!c) return;
+      if (env.k === 'a') c._open(); else c._in(env);
+    }
+  }
+}
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- Hava durumu efekti (konum izni verenlerde otomatik: yağmur / kar) ----------
+function startWeather() {
+  const cv = $('wx');
+  const say = (t) => { const e = $('wxs'); if (e) e.textContent = t; };
+  if (!cv || !navigator.geolocation || !window.fetch) { say('Hava: bu tarayıcı konumu desteklemiyor'); return; }
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { say('Hava: hareket azaltma açık, efekt kapalı'); return; }
+  say('Hava: konum bekleniyor…');
+  const ctx = cv.getContext('2d');
+  let kind = '', heavy = false, parts = [], W = 0, H = 0, dpr = 1, raf = 0, last = 0;
+  function size() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    build();
+  }
+  function build() {
+    if (!kind) { parts = []; return; }
+    const area = W * H;
+    const n = Math.round(Math.min(kind === 'snow' ? 170 : 230, area / (kind === 'snow' ? 4500 : 3200)) * (heavy ? 1.6 : 1));
+    parts = Array.from({ length: n }, () => mk(true));
+  }
+  function mk(any) {
+    const x = Math.random() * (W + 80) - 40;
+    const y = any ? Math.random() * H : -20;
+    if (kind === 'snow') return { x, y, r: 1 + Math.random() * 2.6, v: 28 + Math.random() * 42, ph: Math.random() * 6.28, sw: 10 + Math.random() * 22 };
+    return { x, y, l: 10 + Math.random() * 14, v: 520 + Math.random() * 380 };
+  }
+  function frame(t) {
+    raf = requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (t - (last || t)) / 1000); last = t;
+    ctx.clearRect(0, 0, W, H);
+    if (kind === 'snow') {
+      ctx.fillStyle = 'rgba(255,255,255,.75)';
+      for (const p of parts) {
+        p.y += p.v * dt; p.ph += dt * 1.4;
+        const x = p.x + Math.sin(p.ph) * p.sw;
+        if (p.y > H + 6) { Object.assign(p, mk(false)); }
+        ctx.beginPath(); ctx.arc(x, p.y, p.r, 0, 6.283); ctx.fill();
+      }
+    } else {
+      ctx.strokeStyle = 'rgba(175,200,255,.42)'; ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (const p of parts) {
+        p.y += p.v * dt; p.x -= p.v * dt * 0.18;
+        if (p.y > H + 20 || p.x < -40) { Object.assign(p, mk(false)); }
+        ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + p.l * 0.18, p.y - p.l);
+      }
+      ctx.stroke();
+    }
+  }
+  function apply(k, hv) {
+    kind = k; heavy = hv;
+    cancelAnimationFrame(raf); raf = 0; last = 0;
+    ctx.clearRect(0, 0, W, H);
+    build();
+    if (kind) raf = requestAnimationFrame(frame);
+  }
+  function kindOf(c) {
+    const code = Number(c.weather_code), rain = Number(c.rain || 0) + Number(c.showers || 0), snow = Number(c.snowfall || 0);
+    if ([71, 72, 73, 74, 75, 77, 85, 86].includes(code) || snow > 0) return ['snow', code === 75 || code === 86 || snow > 1.5];
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95 || rain > 0) return ['rain', [65, 67, 82, 95, 96, 99].includes(code) || rain > 2.5];
+    return ['', false];
+  }
+  let pos = null;
+  function load() {
+    if (!pos) return;
+    // Konum yaklaşık 10 km'ye yuvarlanarak gönderilir
+    const la = pos.latitude.toFixed(1), lo = pos.longitude.toFixed(1);
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=' + la + '&longitude=' + lo + '&current=weather_code,rain,showers,snowfall')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        if (!d || !d.current) throw new Error('x');
+        const k = kindOf(d.current); apply(k[0], k[1]);
+        say(k[0] === 'rain' ? 'Hava: yağmurlu 🌧' : k[0] === 'snow' ? 'Hava: karlı ❄️' : 'Hava: yağış yok, efekt çıkmaz');
+      })
+      .catch(() => say('Hava: veri alınamadı'));
+  }
+  window.addEventListener('resize', size);
+  size();
+  navigator.geolocation.getCurrentPosition(
+    (g) => { pos = g.coords; load(); setInterval(load, 15 * 60 * 1000); },
+    (er) => say(er && er.code === 1 ? 'Hava: konum izni verilmedi (tarayıcı ayarlarından izin ver)' : 'Hava: konum alınamadı'),
+    { timeout: 25000, maximumAge: 60 * 60 * 1000 }
+  );
+}
+
+// ---------- Yaş kapısı ----------
+const KEY_OK = 'yas18', KEY_NO = 'yasyok';
+function store(k) {
+  try { localStorage.setItem(k, '1'); } catch (e) {}
+  try { document.cookie = k + '=1; max-age=315360000; path=/; SameSite=Lax'; } catch (e) {}
+}
+function has(k) {
+  try { if (localStorage.getItem(k) === '1') return true; } catch (e) {}
+  try { return document.cookie.split('; ').some((c) => c === k + '=1'); } catch (e) { return false; }
+}
+function showBlocked() {
+  const g = $('gate');
+  g.innerHTML = '<div class="gbox"><h2>Erişim engellendi</h2><p>Bu siteyi kullanmak için 18 yaşından büyük olmalısın.</p></div>';
+  g.style.display = 'flex';
+}
+function showGate() {
+  $('gate').style.display = 'flex';
+  $('gYes').onclick = () => { store(KEY_OK); $('gate').style.display = 'none'; startApp(); };
+  $('gNo').onclick = () => { store(KEY_NO); showBlocked(); };
+}
+
+// ---------- Açılış animasyonu, sonra yaş kapısı ----------
+(function () {
+  const intro = $('intro');
+  if (has(KEY_NO)) { intro.remove(); showBlocked(); return; }
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let done = false;
+  const close = () => {
+    if (done) return;
+    done = true;
+    intro.classList.add('out');
+    setTimeout(() => intro.remove(), 900);
+    if (has(KEY_NO)) showBlocked();
+    else if (has(KEY_OK)) startApp();
+    else showGate();
+  };
+  intro.onclick = close;
+  setTimeout(close, reduce ? 800 : 3700);
+})();
+
+// ---------- Uygulama (yaş onayından sonra başlar) ----------
+let appStarted = false;
+const APP_VER = '2026-11-17-h';
+function startApp() {
+if (appStarted) return;
+appStarted = true;
+$('ver').textContent = 'Sürüm ' + APP_VER;
+startWeather();
+const qs = new URLSearchParams(location.hash.length > 1 ? location.hash.slice(1) : location.search);
+const hostId = qs.get('oda');
+const TTL = 48 * 60 * 60 * 1000; // toplu link ömrü: 48 saat
+const TTL_ONE = 24 * 60 * 60 * 1000; // tekli link ömrü: 24 saat
+const gTTL = qs.get('k') ? TTL_ONE : TTL;
+const isHost = !hostId;
+
+function setStatus(t) { $('st').textContent = t; }
+
+function addMsg(text, cls, who) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (cls || '');
+  if (who) {
+    const w = document.createElement('span');
+    w.className = 'who';
+    w.textContent = who;
+    d.appendChild(w);
+  }
+  d.appendChild(document.createTextNode(text));
+  $('msgs').appendChild(d);
+  $('msgs').scrollTop = 1e9;
+  return d;
+}
+
+// ---------- Bağlantı (PeerJS) ----------
+const conns = [];
+let myCode = null, hostStart = 0;
+if (isHost) {
+  try {
+    myCode = sessionStorage.getItem('oda');
+    hostStart = Number(sessionStorage.getItem('odaT')) || 0;
+  } catch (e) {}
+  // Yoksa ya da 48 saat geçtiyse yeni oda kodu üret
+  if (!myCode || myCode.length < 20 || !hostStart || Date.now() - hostStart > TTL) {
+    myCode = rnd(10);
+    hostStart = Date.now();
+    try { sessionStorage.removeItem('odaM'); sessionStorage.removeItem('odaK'); sessionStorage.removeItem('odaG'); sessionStorage.removeItem('odaL'); sessionStorage.setItem('oda', myCode); sessionStorage.setItem('odaT', String(hostStart)); } catch (e) {}
+  }
+}
+function rnd(n) {
+  n = n || 16;
+  try { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join(''); }
+  catch (e) { return ''; }
+}
+function devId() {
+  let d = '';
+  try { d = localStorage.getItem('devId') || ''; } catch (e) {}
+  if (!d) { try { d = sessionStorage.getItem('devId') || ''; } catch (e) {} }
+  if (!d) d = rnd();
+  try { localStorage.setItem('devId', d); } catch (e) {}
+  try { sessionStorage.setItem('devId', d); } catch (e) {}
+  return d;
+}
+let tokens = {}, gTok = '';
+function saveTokens() {
+  try { sessionStorage.setItem('odaK', JSON.stringify(tokens)); sessionStorage.setItem('odaG', gTok); } catch (e) {}
+}
+if (isHost) {
+  try {
+    tokens = JSON.parse(sessionStorage.getItem('odaK') || '{}') || {};
+    gTok = sessionStorage.getItem('odaG') || '';
+  } catch (e) {}
+  if (!gTok) { tokens = {}; gTok = rnd(); saveTokens(); }
+}
+// ---------- Kimlik doğrulama (token ağa hiç gönderilmez; HMAC ile karşılıklı doğrulama) ----------
+const enc = new TextEncoder();
+const hex = (buf) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+async function hmac(key, msg) {
+  const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hex(await crypto.subtle.sign('HMAC', k, enc.encode(msg)));
+}
+async function sha(t) { return hex(await crypto.subtle.digest('SHA-256', enc.encode(t))); }
+function same(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+let fails = 0, warnAt = 0, lockDev = '';
+if (isHost) { try { lockDev = sessionStorage.getItem('odaL') || ''; } catch (e) {} }
+function setLock(d) { lockDev = d; try { sessionStorage.setItem('odaL', d); } catch (e) {} }
+function blocked(ua) {
+  if (Date.now() - warnAt < 10000) return;
+  warnAt = Date.now();
+  addMsg('Yetkisiz bir giriş denemesi engellendi' + (ua ? ' (' + ua + ')' : '') + '.', 'sys');
+}
+async function checkHello(c, m) {
+  const bad = { why: 'invalid', e: null };
+  if (fails >= 10 || !c._nh) return bad;
+  if (typeof m.dev !== 'string' || !m.dev || m.dev.length > 64) return bad;
+  if (typeof m.na !== 'string' || m.na.length < 8 || m.na.length > 64) return bad;
+  if (typeof m.mac !== 'string' || typeof m.id !== 'string') return bad;
+  let T = '', e = null;
+  if (m.w === 'k') {
+    for (const t of Object.keys(tokens)) { if (same((await sha(t)).slice(0, 16), m.id)) { T = t; break; } }
+    if (!T) return bad;
+    e = tokens[T];
+  } else if (m.w === 'g' && gTok) {
+    T = gTok;
+  } else return bad;
+  if (!same(await hmac(T, 'g|' + c._nh + '|' + m.na + '|' + m.dev), m.mac)) return bad;
+  c._T = T;
+  if (e) {
+    if (Date.now() - e.t > TTL_ONE) return { why: 'expired', e };
+    if (e.dev && e.dev !== m.dev) return { why: 'used', e };
+  }
+  return { why: '', e };
+}
+const startedAt = Number(qs.get('s')) || 0;
+let expired = !isHost && (!startedAt || Date.now() - startedAt > gTTL);
+const peer = isHost ? new RelayPeer('birlikte-' + myCode) : new RelayPeer();
+let baseLink = '';
+let denied = false;
+
+function broadcast(m, except) {
+  conns.forEach((c) => { if (c !== except && c.open && (isHost ? c._ok : c._auth)) { try { c.send(m); } catch (e) {} } });
+}
+function send(m) { broadcast(m); }
+
+// ---------- Teslim onayı, tanı mesajları, parçalı görsel ----------
+let diagAt = 0;
+function diag(t) {
+  if (Date.now() - diagAt < 3000) return;
+  diagAt = Date.now();
+  addMsg('⚠️ ' + t, 'sys');
+}
+const waiting = {};
+function arm(mid) {
+  const w = waiting[mid];
+  if (!w) return;
+  w.t = setTimeout(() => {
+    if (w.retry && w.n++ < 2) { try { w.retry(); } catch (e) {} arm(mid); return; }
+    delete waiting[mid];
+    addMsg('Mesaj karşı tarafa ulaşmadı. Bağlantıyı kontrol et, gerekirse iki cihazda da sayfayı yenile.', 'sys');
+  }, w.ms);
+}
+function track(mid, ms, retry, okText) { waiting[mid] = { ms: ms || 6000, n: 0, retry, okText }; arm(mid); }
+function gotAck(id) {
+  const w = waiting[id];
+  if (!w) return;
+  clearTimeout(w.t); delete waiting[id];
+  if (w.okText) addMsg(w.okText, 'sys');
+}
+function ack(c, mid) {
+  if (typeof mid === 'string' && mid && mid.length <= 16) { try { c.send({ type: 'ack', id: mid }); } catch (e) {} }
+}
+function sendT(m) { m.mid = rnd(6); track(m.mid, 6000); send(m); }
+
+const CHUNK = 12000;
+function emitPhoto(o, except, mid, id) {
+  id = id || rnd(6);
+  const parts = [];
+  for (let i = 0; i < o.data.length; i += CHUNK) parts.push(o.data.slice(i, i + CHUNK));
+  broadcast({ type: 'pstart', id, cnt: parts.length, adult: !!o.adult, role: o.role, vn: Number.isInteger(o.n) ? o.n : 0, mid: mid || '' }, except);
+  parts.forEach((d, i) => setTimeout(() => broadcast({ type: 'pchunk', id, i, d }, except), 60 * (i + 1)));
+  return id;
+}
+function chunkIn(c, m) {
+  c._inc = c._inc || {};
+  if (m.type === 'pstart') {
+    if (typeof m.id !== 'string' || m.id.length > 16 || !Number.isInteger(m.cnt) || m.cnt < 1 || m.cnt > 200) return null;
+    c._done = c._done || new Set();
+    if (c._done.has(m.id)) { ack(c, typeof m.mid === 'string' ? m.mid.slice(0, 16) : ''); return null; }
+    if (c._inc[m.id]) return null;
+    if (Object.keys(c._inc).length >= 3) return null;
+    c._inc[m.id] = { cnt: m.cnt, adult: !!m.adult, mid: typeof m.mid === 'string' ? m.mid.slice(0, 16) : '',
+      role: typeof m.role === 'string' ? m.role.slice(0, 12) : 'izleyici', vn: m.vn, parts: [], got: 0, len: 0 };
+    return null;
+  }
+  const t = typeof m.id === 'string' ? c._inc[m.id] : null;
+  if (!t || !Number.isInteger(m.i) || m.i < 0 || m.i >= t.cnt || typeof m.d !== 'string' || m.d.length > 20000 || t.parts[m.i] !== undefined) return null;
+  t.parts[m.i] = m.d; t.got++; t.len += m.d.length;
+  if (t.len > 1.6e6) { delete c._inc[m.id]; return null; }
+  if (t.got < t.cnt) return null;
+  delete c._inc[m.id];
+  c._done.add(m.id); if (c._done.size > 50) c._done.delete(c._done.values().next().value);
+  return { type: 'photo', data: t.parts.join(''), adult: t.adult, mid: t.mid, role: t.role, n: t.vn };
+}
+
+function setCount(n) { $('cnt').textContent = '👥 ' + n + ' aktif'; }
+function live() { return conns.some((x) => x.open && (isHost ? x._ok : x._auth)); }
+function openCount() { return 1 + conns.filter((x) => x.open && (!isHost || x._ok)).length; }
+function announce(ev) { const n = openCount(); setCount(n); send({ type: 'presence', n, ev }); }
+
+function gone(c) {
+  if (c._gone) return;
+  c._gone = true;
+  const i = conns.indexOf(c); if (i > -1) conns.splice(i, 1);
+  try { c.close(); } catch (e) {}
+  if (isHost) {
+    if (!c._opened) return;
+    addMsg((c._ua || 'Biri') + ' odadan ayrıldı', 'sys');
+    announce('leave');
+    if (!live()) setStatus('Bekleniyor…');
+  } else {
+    if (c._full) { setTimeout(connectHost, 4000); return; }
+    if (denied) return;
+    addMsg('Bağlantı koptu, tekrar deniyorum…', 'sys');
+    setCount(1);
+    setStatus('Tekrar bağlanılıyor…');
+    setTimeout(connectHost, 3000);
+  }
+}
+
+const MAX_VIEWERS = 8;
+let groupMode = false; // varsayılan: 2 kişilik oda (1 izleyici)
+if (isHost) { try { groupMode = sessionStorage.getItem('odaM') === '1'; } catch (e) {} }
+let myRole = isHost ? 'kurucu' : 'izleyici';
+const lbl = (r, n) => (r === 'kurucu' ? 'kurucu' : (Number.isInteger(n) && n >= 1 && n <= MAX_VIEWERS ? 'izleyici ' + n : 'izleyici'));
+
+async function admit(c, m) {
+  let why = '', e = null;
+  try { const r = await checkHello(c, m); why = r.why; e = r.e; } catch (err) { why = 'invalid'; }
+  if (c._gone) return;
+  if (!why) {
+    // Doğrulanmış aynı cihaz yeniden bağlanıyorsa eski (donmuş) bağlantıyı bırak
+    conns.slice().forEach((x) => {
+      if (x !== c && x._ok && x._dev === m.dev) {
+        x._gone = true;
+        const i = conns.indexOf(x); if (i > -1) conns.splice(i, 1);
+        try { x.close(); } catch (er) {}
+      }
+    });
+    if (conns.filter((x) => x._ok).length >= (groupMode ? MAX_VIEWERS : 1)) why = 'full';
+    else if (!groupMode && lockDev && lockDev !== m.dev) why = 'used';
+  }
+  if (why) {
+    if (why === 'invalid') fails++;
+    blocked(why === 'invalid' ? '' : cleanUa(m.ua));
+    c._gone = true;
+    const i = conns.indexOf(c); if (i > -1) conns.splice(i, 1);
+    try { c.send({ type: 'deny', why }); } catch (er) {}
+    setTimeout(() => { try { c.close(); } catch (er) {} }, 400);
+    return;
+  }
+  if (e && !e.dev) { e.dev = m.dev; saveTokens(); }
+  if (!groupMode && !lockDev) setLock(m.dev);
+  const used = new Set(conns.filter((x) => x._ok).map((x) => x._n));
+  let n = 1; while (used.has(n)) n++;
+  c._n = n;
+  c._ok = true; c._opened = true; c._seen = Date.now(); c._dev = m.dev; c._ua = cleanUa(m.ua);
+  clearTimeout(c._hto);
+  let proof = '';
+  try { proof = await hmac(c._T, 'h|' + c._nh + '|' + m.na); } catch (er) {}
+  try { c.send({ type: 'you', n, proof }); } catch (er) {}
+  try { const kh = await hmac(c._T, 'k|' + c._nh + '|' + m.na); await c.setKey(kh); showCode(kh); } catch (er) { try { c.close(); } catch (e2) {} return; }
+  setStatus('Birlikte izliyorsunuz');
+  addMsg('Biri odaya katıldı', 'sys');
+  announce('join');
+  if (cur) c.send({ type: 'state', media: cur, time: M.time(), playing: M.playing() });
+}
+
+// Cihaz bilgisi: tarayıcının verdiği kadarı (iPhone modeli tarayıcıdan öğrenilemez, Android modeli çoğu zaman öğrenilir)
+async function deviceInfo() {
+  const ua = navigator.userAgent || '';
+  let dev = '', os = '', br = '', m;
+  if (/iPhone/.test(ua)) { dev = 'iPhone'; m = ua.match(/OS (\d+)[_.]/); os = m ? 'iOS ' + m[1] : 'iOS'; }
+  else if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) { dev = 'iPad'; m = ua.match(/OS (\d+)[_.]/); os = m ? 'iPadOS ' + m[1] : ''; }
+  else if (/Android/.test(ua)) {
+    dev = 'Android telefon'; m = ua.match(/Android (\d+)/); os = m ? 'Android ' + m[1] : 'Android';
+    const um = ua.match(/Android [\d.]+; ([^;)]+)/);
+    if (um && um[1].length > 1 && !/^(K|Linux)$/.test(um[1].trim())) dev = um[1].trim();
+    try {
+      const h = await Promise.race([navigator.userAgentData.getHighEntropyValues(['model']), new Promise((r) => setTimeout(r, 800))]);
+      if (h && h.model) dev = h.model;
+    } catch (e) {}
+  }
+  else if (/Windows/.test(ua)) dev = 'Windows bilgisayar';
+  else if (/CrOS/.test(ua)) dev = 'Chromebook';
+  else if (/Mac OS X|Macintosh/.test(ua)) dev = 'Mac';
+  else if (/Linux/.test(ua)) dev = 'Linux bilgisayar';
+  if (/EdgA?\/|Edg\//.test(ua)) br = 'Edge';
+  else if (/OPR\//.test(ua)) br = 'Opera';
+  else if (/SamsungBrowser/.test(ua)) br = 'Samsung Internet';
+  else if (/FxiOS|Firefox\//.test(ua)) br = 'Firefox';
+  else if (/CriOS|Chrome\//.test(ua)) br = 'Chrome';
+  else if (/Safari\//.test(ua)) br = 'Safari';
+  return [dev, os, br].filter(Boolean).join(' · ').slice(0, 80);
+}
+const cleanUa = (u) => String(u || '').replace(/[^\p{L}\p{N} ·.\-_()+]/gu, '').slice(0, 80);
+
+// Güvenlik kodu: iki cihazda da aynı çıkmalı (ortak oturum anahtarından türer, anahtarın kendisi gösterilmez)
+async function showCode(kh) {
+  try {
+    const n = parseInt((await sha('kod|' + kh)).slice(0, 8), 16) % 1000000;
+    const t = String(n).padStart(6, '0');
+    addMsg('🔒 Güvenlik kodu: ' + t.slice(0, 3) + ' ' + t.slice(3) + '. Karşı tarafta da aynı kodu görüyorsan sohbet uçtan uca şifreli ve doğrudur.', 'sys');
+  } catch (e) {}
+}
+
+async function guestHello(c, m) {
+  if (c._na || typeof m.nh !== 'string' || m.nh.length < 8 || m.nh.length > 64) return;
+  if (m.v !== APP_VER) {
+    denied = true;
+    setStatus('Sürüm farklı');
+    addMsg('İki cihazdaki sayfa sürümü farklı. İkisinde de sayfayı yenile (tarayıcı eski sayfayı saklıyor olabilir).', 'sys');
+    try { c.close(); } catch (e) {}
+    return;
+  }
+  const w = qs.get('k') ? 'k' : 'g';
+  const T = qs.get('k') || qs.get('g') || '';
+  if (!T || !(window.crypto && crypto.subtle)) {
+    denied = true;
+    setStatus('Odaya girilemedi');
+    addMsg('Bu link geçersiz ya da tarayıcı güvenli bağlantıyı desteklemiyor. Oda sahibinden yeni link iste.', 'sys');
+    try { c.close(); } catch (e) {}
+    return;
+  }
+  c._na = rnd(12); c._nh = m.nh; c._T = T;
+  const dev = devId();
+  c.send({ type: 'hello', w, id: (await sha(T)).slice(0, 16), na: c._na, dev, mac: await hmac(T, 'g|' + m.nh + '|' + c._na + '|' + dev) });
+}
+
+async function guestAuth(c, m) {
+  if (c._auth || !c._na || typeof m.proof !== 'string') return;
+  let ok = false;
+  try { ok = same(await hmac(c._T, 'h|' + c._nh + '|' + c._na), m.proof); } catch (e) {}
+  if (!ok) {
+    denied = true;
+    setStatus('Oda doğrulanamadı');
+    addMsg('Odanın gerçek oda sahibi olduğu doğrulanamadı, bağlantı kapatıldı.', 'sys');
+    try { c.close(); } catch (e) {}
+    return;
+  }
+  try { const kh = await hmac(c._T, 'k|' + c._nh + '|' + c._na); await c.setKey(kh); showCode(kh); } catch (e) { try { c.close(); } catch (e2) {} return; }
+  c._auth = true;
+  deviceInfo().then((ua) => { try { c.send({ type: 'meta', ua }); } catch (e) {} });
+  setStatus('Bağlandın');
+  addMsg('Odaya bağlandın', 'sys');
+  if (Number.isInteger(m.n) && m.n >= 1 && m.n <= MAX_VIEWERS) {
+    myRole = 'izleyici ' + m.n;
+    addMsg('Sen ' + myRole + ' olarak katıldın', 'sys');
+  }
+}
+
+async function onData(c, m) {
+  if (!m || typeof m !== 'object' || m.type === 'ping') return;
+  if (isHost) {
+    // Doğrulanmamış bağlantıdan sadece hello kabul edilir
+    if (!c._ok) { if (m.type === 'hello' && !c._ver) { c._ver = true; await admit(c, m); } return; }
+    // İzleyiciden sadece sohbet içeriği kabul edilir (video kontrolü sadece oda sahibinde)
+    if (m.type === 'ack') { gotAck(m.id); return; }
+    if (m.type === 'meta') { if (!c._ua) { c._ua = cleanUa(m.ua); if (c._ua) addMsg('Cihaz: ' + c._ua, 'sys'); } return; }
+    if (m.type === 'pstart' || m.type === 'pchunk') {
+      const ph = chunkIn(c, m);
+      if (ph && ph.data.startsWith('data:image/jpeg;base64,')) {
+        ack(c, ph.mid);
+        const out = { type: 'photo', data: ph.data, adult: ph.adult, role: 'izleyici', n: c._n };
+        handle(out);
+        emitPhoto(out, c, '');
+      }
+      return;
+    }
+    let o = null;
+    if (m.type === 'chat' && typeof m.text === 'string') o = { type: 'chat', text: m.text.slice(0, 2000) };
+    else if (m.type === 'wipe') o = { type: 'wipe' };
+    else if (m.type === 'sticker' && Number.isInteger(m.i) && m.i >= 0 && m.i < STICKERS.length) o = { type: 'sticker', i: m.i };
+    else if (m.type === 'gif') { const u = gifUrl(m.url); if (u) o = { type: 'gif', url: u }; }
+    if (!o) return;
+    ack(c, m.mid);
+    o.role = 'izleyici'; o.n = c._n;
+    handle(o);
+    broadcast(o, c);
+    return;
+  }
+  if (m.type === 'chal') { await guestHello(c, m); return; }
+  if (m.type === 'you') { await guestAuth(c, m); return; }
+  if (m.type === 'deny') {
+    if (c._auth) return;
+    if (m.why === 'full') {
+      c._full = true;
+      setStatus('Oda dolu, tekrar deniyorum…');
+      return;
+    }
+    denied = true;
+    const why = { used: 'Bu tekli link başka bir cihaza ait.', expired: 'Linkin süresi doldu. Oda sahibinden yeni link iste.' }[m.why] || 'Bu link geçersiz. Oda sahibinden yeni link iste.';
+    setStatus('Odaya girilemedi');
+    addMsg(why, 'sys');
+    return;
+  }
+  if (!c._auth) return; // doğrulanmadan hiçbir mesaj işlenmez
+  if (m.type === 'ack') { gotAck(m.id); return; }
+  if (m.type === 'pstart' || m.type === 'pchunk') {
+    const ph = chunkIn(c, m);
+    if (ph) { ack(c, ph.mid); handle(ph); }
+    return;
+  }
+  if (['chat', 'sticker', 'gif'].includes(m.type)) ack(c, m.mid);
+  handle(m);
+}
+
+function wire(c) {
+  c._seen = Date.now();
+  c.on('data', (m) => {
+    c._seen = Date.now();
+    c._p = (c._p || Promise.resolve()).then(() => onData(c, m)).catch(() => {});
+  });
+  c.on('close', () => gone(c));
+  c.on('error', (e) => { diag('Bağlantı hatası: ' + ((e && (e.type || e.message)) || 'bilinmiyor')); gone(c); });
+  const watchIce = () => {
+    try {
+      const pc = c.peerConnection;
+      if (!pc || c._icew) return;
+      c._icew = true;
+      pc.addEventListener('iceconnectionstatechange', () => {
+        const st = pc.iceConnectionState;
+        if (st === 'failed') diag('Doğrudan bağlantı kurulamadı. Cihazlar farklı ağlardaysa (örneğin mobil veri) engellenmiş olabilir. İkisini aynı Wi-Fi ağına al ve tekrar dene.');
+        else if (st === 'disconnected') diag('Ağ bağlantısı kesildi, toparlanması bekleniyor…');
+      });
+    } catch (er) {}
+  };
+  setTimeout(watchIce, 0); setTimeout(watchIce, 1000); setTimeout(watchIce, 3000);
+}
+
+// Kalp atışı: her 3 sn ping gönder, 12 sn ses gelmezse karşı tarafı çıkmış say
+setInterval(() => {
+  conns.slice().forEach((c) => {
+    if (c.open) { try { c.send({ type: 'ping' }); } catch (e) {} }
+    if (c._opened && Date.now() - c._seen > 35000) gone(c);
+  });
+}, 3000);
+// Telefonda uygulama arka plana gidip gelince zamanlayıcılar durur: sayaçları sıfırla, gerekirse yeniden bağlan
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  conns.forEach((c) => { c._seen = Date.now(); });
+  try { if (peer.disconnected && !peer.destroyed) peer.reconnect(); } catch (e) {}
+  if (!isHost && !denied && !conns.some((x) => x.open)) connectHost();
+});
+window.addEventListener('pagehide', () => { conns.forEach((c) => { try { c.close(); } catch (e) {} }); });
+
+peer.on('error', (e) => {
+  if (e.type === 'peer-unavailable') {
+    setStatus('Oda sahibi bekleniyor, tekrar deniyorum…');
+    setTimeout(connectHost, 3000);
+  } else if (e.type === 'unavailable-id') {
+    setStatus('Oda meşgul, yeniden deneniyor…');
+    setTimeout(() => location.reload(), 3000);
+  } else {
+    setStatus('Bağlantı hatası: ' + e.type);
+    diag('Eşleşme sunucusu hatası: ' + e.type + '. Birkaç saniye sonra sayfayı yenile.');
+  }
+});
+peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
+
+peer.on('open', (id) => {
+  if (isHost) {
+    baseLink = location.origin + location.pathname + '#oda=' + id;
+    setStatus('Hazır, linki arkadaşına gönder');
+    $('copy').hidden = false;
+    $('lk').hidden = false;
+    $('mode').hidden = false;
+    addMsg('Oda hazır (2 kişilik). Tekli linki kopyalayıp arkadaşına gönder, 24 saat geçerli ve ilk açan cihaza özel. Daha fazla kişi için toplu linki seçebilirsin.', 'sys');
+  } else {
+    connectHost();
+  }
+});
+
+function expireNow() {
+  expired = true;
+  conns.forEach((c) => { try { c.close(); } catch (e) {} });
+  setStatus('Linkin süresi doldu');
+  addMsg('Bu linkin süresi doldu. Oda sahibinden yeni link iste.', 'sys');
+}
+
+if (isHost) {
+  // Süre dolunca sayfa yenilenir ve yeni oda linki oluşur
+  setInterval(() => {
+    if (Date.now() - hostStart > TTL) {
+      try { sessionStorage.removeItem('oda'); sessionStorage.removeItem('odaT'); } catch (e) {}
+      location.reload();
+    }
+  }, 60000);
+} else if (expired) {
+  addMsg('Bu linkin süresi doldu. Oda sahibinden yeni link iste.', 'sys');
+} else {
+  setTimeout(expireNow, Math.max(0, startedAt + gTTL - Date.now()));
+}
+
+function connectHost() {
+  if (denied) return;
+  if (!isHost && (expired || Date.now() - startedAt > gTTL)) {
+    if (!expired) expireNow(); else setStatus('Linkin süresi doldu');
+    return;
+  }
+  if (conns.some((x) => x.open)) return;
+  const c = peer.connect(hostId, { reliable: true });
+  c.on('open', () => {
+    c._opened = true; c._seen = Date.now();
+    conns.push(c);
+    setStatus('Doğrulanıyor…');
+    setTimeout(() => { if (!c._auth && !c._gone && !c._full && !denied) { if (!c._na) diag('Oda sahibinden cevap gelmedi. İki cihazda da sayfayı yenile, eski sürüm açık olabilir.'); try { c.close(); } catch (e) {} } }, 10000);
+  });
+  wire(c);
+}
+
+if (isHost) {
+  peer.on('connection', (c) => {
+    if (conns.filter((x) => !x._ok).length >= 3) { c._gone = true; setTimeout(() => { try { c.close(); } catch (e) {} }, 0); return; }
+    conns.push(c);
+    c.on('open', () => {
+      c._seen = Date.now();
+      c._nh = rnd(12);
+      try { c.send({ type: 'chal', nh: c._nh, v: APP_VER }); } catch (e) {}
+      c._hto = setTimeout(() => { if (!c._ok) { c._gone = true; try { c.close(); } catch (e) {} } }, 6000);
+    });
+    wire(c);
+  });
+}
+
+// ---------- Video rengine göre arka plan ışığı (sadece YouTube) ----------
+let glowFront = $('glowA'), glowKey = '';
+function setGlow(id, frame) {
+  const key = id + '/' + frame;
+  if (key === glowKey) return;
+  glowKey = key;
+  const next = glowFront === $('glowA') ? $('glowB') : $('glowA');
+  next.style.backgroundImage = 'url(https://i.ytimg.com/vi/' + id + '/' + frame + '.jpg)';
+  next.style.opacity = 1;
+  glowFront.style.opacity = 0;
+  glowFront = next;
+}
+function clearGlow() {
+  glowKey = '';
+  $('glowA').style.opacity = 0;
+  $('glowB').style.opacity = 0;
+  $('glow').classList.remove('on');
+}
+setInterval(() => {
+  if (!cur || cur.kind !== 'yt' || !ytReady) return;
+  const d = ytPlayer.getDuration() || 0, t = ytPlayer.getCurrentTime() || 0;
+  const p = d ? t / d : 0;
+  setGlow(cur.id, p < 0.375 ? 1 : p < 0.625 ? 2 : 3);
+  $('glow').classList.toggle('on', ytPlayer.getPlayerState() === 1);
+}, 2000);
+
+// ---------- Oynatıcılar (YouTube + doğrudan video linki) ----------
+let cur = null;              // {kind:'yt', id} ya da {kind:'file', url}
+let ytPlayer = null, ytReady = false, pending = null;
+let applying = false, wantPlaying = false, hls = null;
+const vid = $('vid');
+
+function parseId(u) {
+  u = u.trim();
+  if (/^[\w-]{11}$/.test(u)) return u;
+  if (!/(^|\/\/)(www\.|m\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)\b/i.test(u)) return null;
+  const m = u.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+function parseMedia(u) {
+  u = u.trim();
+  const id = parseId(u);
+  if (id) return { kind: 'yt', id };
+  if (/^https?:\/\/\S+$/i.test(u)) return { kind: 'file', url: u };
+  return null;
+}
+function validMedia(m) {
+  return !!m && ((m.kind === 'yt' && /^[\w-]{11}$/.test(m.id || '')) ||
+                 (m.kind === 'file' && /^https?:\/\/\S+$/i.test(m.url || '')));
+}
+function silently(fn) { applying = true; fn(); setTimeout(() => (applying = false), 700); }
+
+const M = {
+  time: () => !cur ? 0 : cur.kind === 'yt' ? (ytReady ? ytPlayer.getCurrentTime() : 0) : vid.currentTime,
+  playing: () => !cur ? false : cur.kind === 'yt' ? (ytReady && ytPlayer.getPlayerState() === 1) : (!vid.paused && !vid.ended),
+  play: () => { if (cur.kind === 'yt') ytPlayer.playVideo(); else vid.play().catch(() => {}); },
+  pause: () => { if (cur.kind === 'yt') ytPlayer.pauseVideo(); else vid.pause(); },
+  seek: (t) => { if (cur.kind === 'yt') ytPlayer.seekTo(t, true); else vid.currentTime = t; }
+};
+
+function showKind(kind) {
+  $('ytWrap').style.display = kind === 'yt' ? 'block' : 'none';
+  vid.style.display = kind === 'file' ? 'block' : 'none';
+}
+
+function checkPlaying() {
+  if (!wantPlaying || !cur) return;
+  if (cur.kind === 'yt') {
+    if (!ytReady) return;
+    const k = ytPlayer.getPlayerState();
+    if (k === 1 || k === 3) return;
+    ytPlayer.mute(); ytPlayer.playVideo();
+  } else {
+    if (!vid.paused) return;
+    vid.muted = true; vid.play().catch(() => {});
+  }
+  addMsg('Video sessiz başladı. Sesi açmak için videoya dokun.', 'sys');
+}
+
+function loadHls(cb) {
+  if (window.Hls) return cb();
+  const sc = document.createElement('script');
+  sc.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js';
+  sc.onload = cb;
+  sc.onerror = () => addMsg('.m3u8 desteği yüklenemedi', 'sys');
+  document.head.appendChild(sc);
+}
+function loadFile(url, t, play) {
+  if (hls) { hls.destroy(); hls = null; }
+  vid.muted = false;
+  const go = () => {
+    if (t) vid.currentTime = t;
+    if (play) vid.play().catch(() => {});
+  };
+  if (/\.m3u8(\?|#|$)/i.test(url) && !vid.canPlayType('application/vnd.apple.mpegurl')) {
+    loadHls(() => {
+      if (!window.Hls || !Hls.isSupported()) { addMsg('Bu tarayıcı .m3u8 videoyu açamıyor', 'sys'); return; }
+      hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(vid);
+      hls.on(Hls.Events.MANIFEST_PARSED, go);
+    });
+  } else {
+    vid.src = url;
+    vid.addEventListener('loadedmetadata', go, { once: true });
+    vid.load();
+  }
+}
+
+function loadMedia(m, st) {
+  if (!validMedia(m)) return;
+  if (m.kind === 'file' && location.protocol === 'https:' && /^http:\/\//i.test(m.url)) {
+    addMsg('http ile başlayan video linki tarayıcı tarafından engellenir.', 'sys');
+    return;
+  }
+  cur = m;
+  wantPlaying = !!(st && st.playing);
+  const t = Number(st && st.time) || 0;
+  showKind(m.kind);
+  silently(() => {
+    if (m.kind === 'yt') {
+      vid.pause();
+      ytPlayer.loadVideoById({ videoId: m.id, startSeconds: t });
+      if (!wantPlaying) setTimeout(() => ytPlayer.pauseVideo(), 300);
+      setGlow(m.id, 1);
+    } else {
+      if (ytReady) ytPlayer.pauseVideo();
+      clearGlow();
+      loadFile(m.url, t, wantPlaying);
+    }
+  });
+  if (wantPlaying) setTimeout(checkPlaying, 1500);
+}
+
+// Doğrudan video: oda sahibinin oynat / durdur / sarma hareketlerini gönder
+vid.addEventListener('error', () => addMsg(
+  'Video açılamadı. Link doğrudan bir video dosyası olmalı (.mp4, .webm, .m3u8) ve erişime açık olmalı.', 'sys'));
+const fileEvt = (type) => () => {
+  if (applying || !isHost || !cur || cur.kind !== 'file') return;
+  send({ type: type || (vid.paused ? 'pause' : 'play'), time: vid.currentTime });
+};
+vid.addEventListener('play', fileEvt('play'));
+vid.addEventListener('pause', fileEvt('pause'));
+vid.addEventListener('seeked', fileEvt(null));
+
+// YouTube
+window.onYouTubeIframeAPIReady = () => {
+  ytPlayer = new YT.Player('yt', {
+    width: '100%', height: '100%',
+    playerVars: { playsinline: 1, rel: 0 },
+    events: {
+      onError: (e) => addMsg('Video açılamadı (kod ' + e.data + '). Başka bir video dene.', 'sys'),
+      onReady: () => { ytReady = true; if (pending) { const p = pending; pending = null; handle(p); } },
+      onStateChange: (e) => {
+        if (applying || !isHost || !cur || cur.kind !== 'yt') return;
+        const t = ytPlayer.getCurrentTime();
+        if (e.data === YT.PlayerState.PLAYING) send({ type: 'play', time: t });
+        else if (e.data === YT.PlayerState.PAUSED) send({ type: 'pause', time: t });
+      }
+    }
+  });
+};
+const ytScript = document.createElement('script');
+ytScript.src = 'https://www.youtube.com/iframe_api';
+document.head.appendChild(ytScript);
+
+function wipeChat(note) {
+  $('msgs').textContent = '';
+  addMsg(note, 'sys');
+}
+function handle(m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.type === 'wipe') { wipeChat('Karşı taraf sohbeti sildi.'); return; }
+  if (m.type === 'presence') {
+    if (!isHost) {
+      if (Number.isFinite(m.n)) setCount(Math.max(1, Math.min(99, m.n)));
+      if (m.ev === 'leave') addMsg('Biri odadan ayrıldı', 'sys');
+    }
+    return;
+  }
+  if (m.type === 'chat') { addMsg(String(m.text), '', lbl(m.role, m.n)); return; }
+  if (m.type === 'sticker') {
+    const st = STICKERS[Number(m.i)];
+    if (st) addSticker(st, '', lbl(m.role, m.n));
+    return;
+  }
+  if (m.type === 'photo') {
+    if (typeof m.data === 'string' && m.data.startsWith('data:image/jpeg;base64,') && m.data.length < 3.5e6) {
+      addPhoto(m.data, !!m.adult, false, lbl(m.role, m.n));
+    }
+    return;
+  }
+  if (m.type === 'gif') {
+    const u = gifUrl(m.url);
+    if (u) addGif(u, '', lbl(m.role, m.n));
+    return;
+  }
+  if ((m.type === 'state' || m.type === 'load') && m.media && m.media.kind === 'yt' && !ytReady) { pending = m; return; }
+  if (m.type === 'state') loadMedia(m.media, m);
+  else if (m.type === 'load') loadMedia(m.media, null);
+  else if (!cur) return;
+  else if (m.type === 'play' || m.type === 'pause') {
+    if (cur.kind === 'yt' && !ytReady) return;
+    const t = Number(m.time) || 0;
+    wantPlaying = m.type === 'play';
+    silently(() => {
+      if (Math.abs(M.time() - t) > 1.5) M.seek(t);
+      wantPlaying ? M.play() : M.pause();
+    });
+    if (wantPlaying) setTimeout(checkPlaying, 1500);
+  } else if (m.type === 'sync') {
+    const t = Number(m.time) || 0;
+    if (Math.abs(M.time() - t) > 2) silently(() => M.seek(t));
+  }
+}
+
+// Oda sahibi her 4 saniyede bir zamanını gönderir (kayma olursa düzeltilir)
+setInterval(() => {
+  if (isHost && cur && live()) send({ type: 'sync', time: M.time() });
+}, 4000);
+
+// ---------- Arayüz ----------
+if (!isHost) {
+  $('url').parentElement.style.display = 'none';
+  addMsg('Videoyu oda sahibi başlatır ve durdurur, sen sadece izle.', 'sys');
+}
+$('load').onclick = () => {
+  const m = parseMedia($('url').value);
+  if (!m) { doSearch(); return; }
+  if (m.kind === 'file' && location.protocol === 'https:' && /^http:\/\//i.test(m.url)) {
+    addMsg('http ile başlayan linkler engellenir. https ile başlayan bir link dene.', 'sys');
+    return;
+  }
+  if (m.kind === 'yt' && !ytReady) { addMsg('YouTube oynatıcısı hazırlanıyor, birkaç saniye sonra tekrar dene.', 'sys'); return; }
+  loadMedia(m, null);
+  send({ type: 'load', media: m });
+  $('url').value = '';
+};
+$('url').onkeydown = (e) => { if (e.key === 'Enter') { if (parseMedia($('url').value)) $('load').click(); else doSearch(); } };
+$('srch').onclick = () => doSearch();
+
+const SEARCH_SRC = [
+  ['p', 'https://pipedapi.kavin.rocks'], ['p', 'https://pipedapi.adminforge.de'], ['p', 'https://api.piped.private.coffee'],
+  ['i', 'https://inv.nadeko.net'], ['i', 'https://invidious.nerdvpn.de'], ['i', 'https://yewtu.be']
+];
+function fetchJson(url) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 7000);
+  return fetch(url, { signal: ac.signal }).then((r) => { if (!r.ok) throw new Error('http'); return r.json(); }).finally(() => clearTimeout(t));
+}
+function searchOne(src, q) {
+  const e = encodeURIComponent(q);
+  const done = (r) => { if (!r.length) throw new Error('empty'); return r; };
+  if (src[0] === 'p') {
+    return fetchJson(src[1] + '/search?q=' + e + '&filter=videos').then((d) => done((d.items || [])
+      .map((x) => ({ id: (String(x.url || '').match(/v=([\w-]{11})/) || [])[1], title: x.title, by: x.uploaderName }))
+      .filter((x) => x.id && x.title)));
+  }
+  return fetchJson(src[1] + '/api/v1/search?q=' + e + '&type=video').then((d) => done((Array.isArray(d) ? d : [])
+    .filter((x) => x.type === 'video' && /^[\w-]{11}$/.test(x.videoId || ''))
+    .map((x) => ({ id: x.videoId, title: x.title, by: x.author }))));
+}
+// İsteğe bağlı: kendi YouTube Data API anahtarını buraya yazarsan arama her zaman çalışır (ücretsiz kota günde ~100 arama)
+const YT_API_KEY = '';
+function ytApiSearch(q) {
+  return fetchJson('https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=8&q=' + encodeURIComponent(q) + '&key=' + encodeURIComponent(YT_API_KEY))
+    .then((d) => (d.items || []).filter((x) => x.id && /^[\w-]{11}$/.test(x.id.videoId || '')).map((x) => ({
+      id: x.id.videoId,
+      title: new DOMParser().parseFromString(x.snippet.title || '', 'text/html').documentElement.textContent,
+      by: x.snippet.channelTitle })));
+}
+let sTok = 0;
+async function doSearch() {
+  const q = $('url').value.trim();
+  if (!q) return;
+  const box = $('res');
+  const note = (t) => { box.textContent = ''; const p = document.createElement('p'); p.textContent = t; box.appendChild(p); };
+  box.classList.add('open');
+  if (!Promise.any) { note('Bu tarayıcı aramayı desteklemiyor. Linki yapıştırarak aç.'); return; }
+  const my = ++sTok;
+  note('Aranıyor…');
+  let list = null;
+  if (YT_API_KEY) { try { list = await ytApiSearch(q); } catch (e) {} }
+  if (!list || !list.length) { try { list = await Promise.any(SEARCH_SRC.map((x) => searchOne(x, q))); } catch (e) {} }
+  if (my !== sTok) return;
+  if (!list) {
+    box.textContent = '';
+    const p = document.createElement('p');
+    p.textContent = 'Uygulama içi arama şu an çalışmıyor (ücretsiz arama sunucuları kapalı). ';
+    const a = document.createElement('a');
+    a.href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
+    a.target = '_blank'; a.rel = 'noopener'; a.style.color = 'var(--accent)';
+    a.textContent = "YouTube'da ara";
+    p.appendChild(a);
+    p.appendChild(document.createTextNode(', videoyu seç, linkini kopyala ve buraya yapıştır.'));
+    box.appendChild(p);
+    return;
+  }
+  box.textContent = '';
+  list.slice(0, 8).forEach((r) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ri';
+    const im = new Image();
+    im.alt = '';
+    im.referrerPolicy = 'no-referrer';
+    im.src = 'https://i.ytimg.com/vi/' + r.id + '/mqdefault.jpg';
+    const sp = document.createElement('span');
+    const t = document.createElement('b'); t.textContent = r.title;
+    const a = document.createElement('small'); a.textContent = r.by || '';
+    sp.appendChild(t); sp.appendChild(a);
+    b.appendChild(im); b.appendChild(sp);
+    b.onclick = () => {
+      if (!ytReady) { addMsg('YouTube oynatıcısı hazırlanıyor, birkaç saniye sonra tekrar dene.', 'sys'); return; }
+      const m = { kind: 'yt', id: r.id };
+      loadMedia(m, null);
+      send({ type: 'load', media: m });
+      box.classList.remove('open');
+      box.textContent = '';
+      $('url').value = '';
+    };
+    box.appendChild(b);
+  });
+}
+
+function sendChat() {
+  const t = $('txt').value.trim();
+  if (!t) return;
+  const alone = !live();
+  const el = addMsg(t, 'me', myRole);
+  if (alone) markAlone(el);
+  else sendT({ type: 'chat', text: t, role: isHost ? 'kurucu' : 'izleyici' });
+  $('txt').value = '';
+  $('txt').focus();
+}
+$('sendBtn').onclick = sendChat;
+
+const EMOJIS = ['😀','😂','🤣','😍','😎','😊','🥳','😱','🤯','😮','🤔','😴','👍','👎','👏','🙌','🙏','👀','🔥','❤️','💖','🎉','🍿','💀'];
+EMOJIS.forEach((e) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = e;
+  b.onclick = () => { $('txt').value += e; $('txt').focus(); };
+  $('pE').appendChild(b);
+});
+$('emojiBtn').onclick = () => $('picker').classList.toggle('open');
+document.querySelectorAll('.tab').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === b));
+    ['pE', 'pS', 'pG', 'pI'].forEach((id) => $(id).classList.toggle('on', id === 'p' + b.dataset.t));
+  };
+});
+
+// ---------- Sticker ve GIF ----------
+const STICKERS = [
+  ['😂', 'Çok güldüm'], ['🔥', 'Yanıyor'], ['❤️', 'Bayıldım'],
+  ['👏', 'Bravo'], ['😍', 'Harika'], ['🍿', 'Mısır hazır'],
+  ['😱', 'Şok oldum'], ['🤯', 'Aklım gitti'], ['😴', 'Sıkıldım'],
+  ['👀', 'Bakıyorum'], ['🎉', 'Kutlama'], ['✋', 'Bir dk durdur']
+];
+
+// Odada kimse yokken de yazabilirsin (deneme için): mesaj sadece sende görünür ve "görülmedi" diye işaretlenir
+function markAlone(el) {
+  if (!el) return;
+  const n = document.createElement('div');
+  n.className = 'unseen';
+  n.textContent = 'Kimse aktif değil, görülmedi';
+  el.appendChild(n);
+  $('msgs').scrollTop = 1e9;
+}
+function ensureConn() {
+  if (live()) return true;
+  addMsg('Karşı taraf bağlı değil, mesaj gitmedi. Üstteki bağlantı durumunu kontrol et.', 'sys');
+  return false;
+}
+function pushMsg(d, who) {
+  if (who) {
+    const w = document.createElement('span');
+    w.className = 'who';
+    w.textContent = who;
+    d.insertBefore(w, d.firstChild);
+  }
+  $('msgs').appendChild(d);
+  $('msgs').scrollTop = 1e9;
+  return d;
+}
+function addSticker(st, cls, who) {
+  const d = document.createElement('div');
+  d.className = 'msg stk ' + (cls || '');
+  const e = document.createElement('div');
+  e.className = 'sticker-emoji';
+  e.textContent = st[0];
+  const c = document.createElement('div');
+  c.className = 'sticker-cap';
+  c.textContent = st[1];
+  d.appendChild(e);
+  d.appendChild(c);
+  return pushMsg(d, who);
+}
+// Sadece güvenli (https) resim linklerini kabul eder; giphy sayfa linklerini dosya linkine çevirir
+function gifUrl(u) {
+  let x;
+  try { x = new URL(String(u).trim()); } catch (e) { return null; }
+  if (x.protocol !== 'https:' || x.username || x.password || x.port) return null;
+  if (!/(^|\.)(giphy\.com|tenor\.com)$/i.test(x.hostname)) return null;
+  if (/(^|\.)giphy\.com$/i.test(x.hostname) && /^\/gifs\//.test(x.pathname)) {
+    const id = x.pathname.replace(/\/+$/, '').split('/').pop().split('-').pop();
+    return /^[A-Za-z0-9]+$/.test(id) ? 'https://media.giphy.com/media/' + id + '/giphy.gif' : null;
+  }
+  if (/\.(gif|webp|png|jpe?g)$/i.test(x.pathname)) return x.href;
+  if (/^(media\d*|i)\.giphy\.com$/i.test(x.hostname) || /^(media\d*|c)\.tenor\.com$/i.test(x.hostname)) return x.href;
+  return null;
+}
+function addGif(url, cls, who) {
+  const d = document.createElement('div');
+  d.className = 'msg img ' + (cls || '');
+  const im = new Image();
+  im.alt = 'GIF';
+  im.referrerPolicy = 'no-referrer';
+  im.onload = () => { $('msgs').scrollTop = 1e9; };
+  im.onerror = () => { im.remove(); d.appendChild(document.createTextNode('GIF yüklenemedi')); };
+  im.src = url;
+  d.appendChild(im);
+  return pushMsg(d, who);
+}
+
+STICKERS.forEach((st, i) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.innerHTML = '<b></b><span></span>';
+  b.firstChild.textContent = st[0];
+  b.lastChild.textContent = st[1];
+  b.onclick = () => {
+    const alone = !live();
+    const el = addSticker(st, 'me', myRole);
+    if (alone) markAlone(el);
+    else sendT({ type: 'sticker', i, role: isHost ? 'kurucu' : 'izleyici' });
+    $('picker').classList.remove('open');
+  };
+  $('pS').appendChild(b);
+});
+
+$('gifSend').onclick = () => {
+  const u = gifUrl($('gifUrl').value);
+  if (!u) {
+    addMsg('Güvenlik için sadece giphy.com ve tenor.com GIF linkleri kabul edilir.', 'sys');
+    return;
+  }
+  const alone = !live();
+  const el = addGif(u, 'me', myRole);
+  if (alone) markAlone(el);
+  else sendT({ type: 'gif', url: u, role: isHost ? 'kurucu' : 'izleyici' });
+  $('gifUrl').value = '';
+  $('picker').classList.remove('open');
+};
+$('gifUrl').onkeydown = (e) => { if (e.key === 'Enter') $('gifSend').click(); };
+
+// ---------- Görsel gönderme (18+ işaretli görseller bulanık gelir) ----------
+function addPhoto(data, adult, mine, who) {
+  const d = document.createElement('div');
+  d.className = 'msg img ' + (mine ? 'me' : '');
+  const box = document.createElement('div');
+  box.className = 'photo' + (adult ? ' adult blurred' : '');
+  const im = new Image();
+  im.alt = 'Görsel';
+  im.onload = () => { $('msgs').scrollTop = 1e9; };
+  im.src = data;
+  box.appendChild(im);
+  if (adult) {
+    const ov = document.createElement('div');
+    ov.className = 'warn';
+    const t = document.createElement('b');
+    t.textContent = '⚠️ 18+ içerik';
+    const sub = document.createElement('small');
+    sub.textContent = mine ? 'Bu görseli 18+ olarak işaretledin.' : 'Gönderen bu görseli 18+ olarak işaretledi. Açmak istediğine emin misin?';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Yine de göster';
+    btn.onclick = () => box.classList.remove('blurred');
+    ov.appendChild(t); ov.appendChild(sub); ov.appendChild(btn);
+    box.appendChild(ov);
+    // Açıkken görsele dokununca tekrar bulanıklaşır
+    im.onclick = () => { if (!box.classList.contains('blurred')) box.classList.add('blurred'); };
+  }
+  d.appendChild(box);
+  return pushMsg(d, who);
+}
+
+function shrink(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      let max = 960, q = 0.65, out = '';
+      for (let i = 0; i < 6; i++) {
+        const r = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(im.naturalWidth * r));
+        c.height = Math.max(1, Math.round(im.naturalHeight * r));
+        const x = c.getContext('2d');
+        x.fillStyle = '#fff';
+        x.fillRect(0, 0, c.width, c.height);
+        x.drawImage(im, 0, 0, c.width, c.height);
+        out = c.toDataURL('image/jpeg', q);
+        if (out.length < 2.5e5) break;
+        max *= 0.75; q = Math.max(0.4, q - 0.08);
+      }
+      URL.revokeObjectURL(url);
+      out.length < 1.5e6 ? res(out) : rej(new Error('big'));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad')); };
+    im.src = url;
+  });
+}
+
+let pendingPhoto = null;
+$('imgFile').onchange = async () => {
+  const f = $('imgFile').files[0];
+  pendingPhoto = null;
+  $('imgSend').disabled = true;
+  $('imgPrev').hidden = true;
+  if (!f) return;
+  try {
+    pendingPhoto = await shrink(f);
+    $('imgPrev').src = pendingPhoto;
+    $('imgPrev').hidden = false;
+    $('imgSend').disabled = false;
+  } catch (e) {
+    addMsg('Bu görsel açılamadı ya da çok büyük. Başka bir görsel dene.', 'sys');
+  }
+};
+$('imgSend').onclick = () => {
+  if (!pendingPhoto) return;
+  try {
+    const adult = $('imgAdult').checked;
+    const data = pendingPhoto;
+    const role = isHost ? 'kurucu' : 'izleyici';
+    const alone = !live();
+    const el = addPhoto(data, adult, true, myRole);
+    if (alone) markAlone(el);
+    else {
+      const pm = rnd(6);
+      let pid = '';
+      const o = { data, adult, role };
+      track(pm, 12000, () => { emitPhoto(o, null, pm, pid); }, 'Görsel iletildi ✓');
+      pid = emitPhoto(o, null, pm);
+      addMsg('Görsel gönderiliyor…', 'sys');
+    }
+    pendingPhoto = null;
+    $('imgFile').value = '';
+    $('imgPrev').hidden = true;
+    $('imgAdult').checked = false;
+    $('imgSend').disabled = true;
+    $('picker').classList.remove('open');
+  } catch (e) {
+    addMsg('Görsel gönderilemedi: ' + ((e && e.message) || 'bilinmeyen hata'), 'sys');
+  }
+};
+$('wipeBtn').onclick = () => {
+  if (!confirm('Sohbetteki tüm mesajlar ve görseller iki tarafta da silinsin mi?')) return;
+  wipeChat('Sohbeti sildin.');
+  send({ type: 'wipe' });
+};
+const cover = $('cover');
+$('hideBtn').onclick = () => { cover.hidden = false; };
+cover.onclick = () => { cover.hidden = true; };
+// Uygulamadan çıkınca (başka uygulamaya geçince) odada biri varsa ekran otomatik gizlenir
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && live()) cover.hidden = false; });
+setInterval(() => { $('aloneNote').hidden = live(); }, 1000);
+$('aloneNote').hidden = live();
+$('txt').onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
+
+function paintMode() {
+  $('mode').textContent = groupMode ? 'Toplu oda (en fazla ' + MAX_VIEWERS + ')' : '2 kişilik oda';
+  $('mode').setAttribute('aria-pressed', String(groupMode));
+}
+$('mode').onclick = () => {
+  groupMode = !groupMode;
+  if (groupMode) setLock('');
+  try { sessionStorage.setItem('odaM', groupMode ? '1' : '0'); } catch (e) {}
+  paintMode();
+  addMsg(groupMode ? 'Toplu oda açıldı, en fazla ' + MAX_VIEWERS + ' izleyici girebilir.' : '2 kişilik oda seçildi, yeni giriş kapandı. İçeridekiler kalır.', 'sys');
+};
+paintMode();
+
+$('copy').onclick = async () => {
+  if (!live()) setLock(''); // odada kimse yokken yeni davet: kilit açılır
+  let link, note;
+  if ($('lk').value === 'k') {
+    const ts = Date.now(), k = rnd();
+    tokens[k] = { t: ts, dev: '' };
+    saveTokens();
+    link = baseLink + '&s=' + ts + '&k=' + k;
+    note = 'Tekli link kopyalandı. 24 saat geçerli, ilk açan cihaza özel.';
+  } else {
+    link = baseLink + '&s=' + hostStart + '&g=' + gTok;
+    note = 'Toplu link kopyalandı. 48 saat geçerli.';
+  }
+  try { await navigator.clipboard.writeText(link); addMsg(note, 'sys'); }
+  catch { prompt('Linki kopyala:', link); }
+};
+}
+</script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const box = $('rp'), txt = $('rpTxt'), msg = $('rpMsg');
+  const MAIL = 'opancial@icloud.com';
+  const hint = msg.textContent;
+  function open() { msg.textContent = hint; box.classList.add('open'); setTimeout(() => txt.focus(), 50); }
+  function close() { box.classList.remove('open'); }
+  $('rpBtn').onclick = open;
+  $('rpCancel').onclick = close;
+  box.onclick = (e) => { if (e.target === box) close(); };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  $('rpSend').onclick = () => {
+    const t = txt.value.trim();
+    if (!t) { msg.textContent = 'Önce sorununu yaz.'; txt.focus(); return; }
+    location.href = 'mailto:' + MAIL + '?subject=' + encodeURIComponent('Birlikte İzle: Sorun bildirimi') + '&body=' + encodeURIComponent(t);
+    txt.value = '';
+    close();
+  };
+})();
+</script>
+</body>
+</html>
