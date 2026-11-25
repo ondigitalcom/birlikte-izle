@@ -117,6 +117,7 @@ html{overflow-x:hidden}
 .chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;margin:6px 0}
 .chk input{flex:none;width:18px;height:18px;margin-top:2px;accent-color:#f2c14e}
 #imgPrev{display:block;max-height:90px;max-width:100%;border-radius:8px;margin:6px 0}
+#imgPrev[hidden]{display:none}
 #pI.on{display:block}
 #pI p{margin:0;font-size:12px;color:var(--dim)}
 #imgSend:disabled{opacity:.4}
@@ -186,6 +187,7 @@ footer{display:flex;flex-wrap:wrap;gap:6px 0;justify-content:center;padding:4px 
 <header>
   <h1>Birlikte İzle</h1>
   <div class="status" id="st">Bağlanıyor…</div>
+  <div class="status" id="visits" hidden aria-live="polite"></div>
   <button class="ghost" id="mode" type="button" hidden aria-pressed="false">2 kişilik oda</button>
   <select id="lk" hidden aria-label="Link türü"><option value="k" selected>Tekli link (24 saat)</option><option value="g">Toplu link (48 saat)</option></select>
   <button class="ghost" id="copy" hidden>Linki kopyala</button>
@@ -230,7 +232,7 @@ footer{display:flex;flex-wrap:wrap;gap:6px 0;justify-content:center;padding:4px 
           <input id="gifUrl" placeholder="GIF linkini yapıştır" autocomplete="off">
           <button id="gifSend">Gönder</button>
         </div>
-        <p><a href="https://giphy.com" target="_blank" rel="noopener">GIPHY'de GIF bul</a>, linkini kopyala ve buraya yapıştır. Güvenlik için sadece giphy.com ve tenor.com linkleri kabul edilir.</p>
+        <p><a href="https://giphy.com" target="_blank" rel="noopener">GIPHY'de GIF bul</a>, sayfa linkini kopyala ve buraya yapıştır. Tenor için sayfa linki çalışmaz: GIF'e uzun basıp "Görsel adresini kopyala" ile doğrudan .gif linkini al. Güvenlik için sadece giphy.com ve tenor.com kabul edilir.</p>
       </div>
     </div>
     <div class="row">
@@ -566,6 +568,15 @@ if (appStarted) return;
 appStarted = true;
 $('ver').textContent = 'Sürüm ' + APP_VER;
 startWeather();
+// Toplam ziyaret sayacı: sayfa her açıldığında (yaş onayından sonra) bir artar, çıkınca azalmaz
+fetchJson('https://abacus.jasoncameron.dev/hit/opn-birlikte-izle/ziyaret')
+  .then((d) => {
+    const n = Number(d && d.value);
+    if (!Number.isFinite(n) || n < 1) return;
+    $('visits').textContent = '👁 ' + n.toLocaleString('tr-TR') + ' toplam ziyaret';
+    $('visits').hidden = false;
+  })
+  .catch(() => {});
 const qs = new URLSearchParams(location.hash.length > 1 ? location.hash.slice(1) : location.search);
 const hostId = qs.get('oda');
 const TTL = 48 * 60 * 60 * 1000; // toplu link ömrü: 48 saat
@@ -1110,7 +1121,8 @@ const vid = $('vid');
 
 function parseId(u) {
   u = u.trim();
-  if (/^[\w-]{11}$/.test(u)) return u;
+  // 11 harflik düz kelimeler (ör. "oppenheimer") video kimliği sayılmasın
+  if (/^[\w-]{11}$/.test(u)) return /^([A-Z]?[a-z]+|[A-Z]+)$/.test(u) ? null : u;
   if (!/(^|\/\/)(www\.|m\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)\b/i.test(u)) return null;
   const m = u.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([\w-]{11})/);
   return m ? m[1] : null;
@@ -1658,7 +1670,11 @@ STICKERS.forEach((st, i) => {
 $('gifSend').onclick = () => {
   const u = gifUrl($('gifUrl').value);
   if (!u) {
-    addMsg('Güvenlik için sadece giphy.com ve tenor.com GIF linkleri kabul edilir.', 'sys');
+    let tp = false;
+    try { const x = new URL($('gifUrl').value.trim()); tp = /(^|\.)tenor\.com$/i.test(x.hostname) && /^\/(view|tr\/view)\//.test(x.pathname); } catch (e) {}
+    addMsg(tp
+      ? 'Tenor sayfa linkleri açılamaz. GIF\'e uzun basıp "Görsel adresini kopyala" ile doğrudan .gif linkini yapıştır, ya da giphy.com linki kullan.'
+      : 'Güvenlik için sadece giphy.com ve tenor.com GIF linkleri kabul edilir.', 'sys');
     return;
   }
   const alone = !live();
