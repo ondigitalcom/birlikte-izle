@@ -1227,7 +1227,10 @@ window.onYouTubeIframeAPIReady = () => {
     width: '100%', height: '100%',
     playerVars: { playsinline: 1, rel: 0 },
     events: {
-      onError: (e) => addMsg('Video açılamadı (kod ' + e.data + '). Başka bir video dene.', 'sys'),
+      onError: (e) => addMsg(
+        (e.data === 101 || e.data === 150 ? 'Bu videonun sahibi başka sitelerde oynatmayı kapatmış.' :
+         e.data === 100 ? 'Video bulunamadı ya da silinmiş.' :
+         e.data === 2 ? 'Video linki geçersiz.' : 'Video açılamadı (kod ' + e.data + ').') + ' Başka bir video dene.', 'sys'),
       onReady: () => { ytReady = true; if (pending) { const p = pending; pending = null; handle(p); } },
       onStateChange: (e) => {
         if (applying || !isHost || !cur || cur.kind !== 'yt') return;
@@ -1345,14 +1348,50 @@ function searchOne(src, q) {
     .filter((x) => x.type === 'video' && /^[\w-]{11}$/.test(x.videoId || ''))
     .map((x) => ({ id: x.videoId, title: x.title, by: x.author }))));
 }
-// İsteğe bağlı: kendi YouTube Data API anahtarını buraya yazarsan arama her zaman çalışır (ücretsiz kota günde ~100 arama)
+// İsteğe bağlı: kendi YouTube Data API anahtarın (ücretsiz kota günde ~100 arama). Aşağıya yazabilir ya da
+// arama çalışmadığında çıkan kutuya yapıştırabilirsin; kutuya yazılan anahtar sadece bu tarayıcıda saklanır.
 const YT_API_KEY = '';
-function ytApiSearch(q) {
-  return fetchJson('https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=8&q=' + encodeURIComponent(q) + '&key=' + encodeURIComponent(YT_API_KEY))
+function getKey() {
+  if (YT_API_KEY) return YT_API_KEY;
+  try { return (localStorage.getItem('ytkey') || '').trim(); } catch (e) { return ''; }
+}
+function ytApiSearch(q, key) {
+  return fetchJson('https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=8&q=' + encodeURIComponent(q) + '&key=' + encodeURIComponent(key))
     .then((d) => (d.items || []).filter((x) => x.id && /^[\w-]{11}$/.test(x.id.videoId || '')).map((x) => ({
       id: x.id.videoId,
       title: new DOMParser().parseFromString(x.snippet.title || '', 'text/html').documentElement.textContent,
       by: x.snippet.channelTitle })));
+}
+// Sabit liste çoğu zaman kapalı olduğundan, çalışan sunucuları herkese açık listelerden de bulur (6 saat saklanır)
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+async function discoverSources() {
+  try {
+    const c = JSON.parse(sessionStorage.getItem('srcCache') || 'null');
+    if (c && Date.now() - c.t < 6 * 3600 * 1000 && Array.isArray(c.l) && c.l.length) return c.l;
+  } catch (e) {}
+  const out = [];
+  const known = new Set(SEARCH_SRC.map((x) => x[1]));
+  const add = (k, u) => {
+    try {
+      const x = new URL(u);
+      if (x.protocol !== 'https:') return;
+      const base = x.origin;
+      if (!known.has(base)) { known.add(base); out.push([k, base]); }
+    } catch (e) {}
+  };
+  const [inv, pip] = await Promise.allSettled([
+    fetchJson('https://api.invidious.io/instances.json?sort_type=health'),
+    fetchJson('https://piped-instances.kavin.rocks/')
+  ]);
+  if (inv.status === 'fulfilled' && Array.isArray(inv.value)) {
+    inv.value.forEach((r) => { const v = r && r[1]; if (v && v.api === true && v.cors !== false && v.type === 'https' && v.uri) add('i', v.uri); });
+  }
+  if (pip.status === 'fulfilled' && Array.isArray(pip.value)) {
+    pip.value.forEach((v) => { if (v && v.api_url) add('p', v.api_url); });
+  }
+  const list = shuffle(out).slice(0, 12);
+  if (list.length) { try { sessionStorage.setItem('srcCache', JSON.stringify({ t: Date.now(), l: list })); } catch (e) {} }
+  return list;
 }
 let sTok = 0;
 async function doSearch() {
@@ -1365,10 +1404,16 @@ async function doSearch() {
   const my = ++sTok;
   note('Aranıyor…');
   let list = null;
-  if (YT_API_KEY) { try { list = await ytApiSearch(q); } catch (e) {} }
-  if (!list || !list.length) { try { list = await Promise.any(SEARCH_SRC.map((x) => searchOne(x, q))); } catch (e) {} }
+  const key = getKey();
+  if (key) { try { list = await ytApiSearch(q, key); } catch (e) {} }
+  if (!list || !list.length) {
+    // Sabit sunucular ile bulunan güncel sunucular aynı anda denenir, ilk cevap veren kazanır
+    const jobs = SEARCH_SRC.map((x) => searchOne(x, q));
+    jobs.push(discoverSources().then((l) => Promise.any(l.map((x) => searchOne(x, q)))));
+    try { list = await Promise.any(jobs); } catch (e) {}
+  }
   if (my !== sTok) return;
-  if (!list) {
+  if (!list || !list.length) {
     box.textContent = '';
     const p = document.createElement('p');
     p.textContent = 'Uygulama içi arama şu an çalışmıyor (ücretsiz arama sunucuları kapalı). ';
@@ -1391,6 +1436,23 @@ async function doSearch() {
       }).catch(() => note('Panoya erişim izni verilmedi. Linki kutuya elle yapıştır.'));
     };
     box.appendChild(pb);
+    // Kalıcı çözüm: kendi ücretsiz YouTube Data API anahtarını gir, arama her zaman çalışsın
+    const kp = document.createElement('p');
+    kp.textContent = 'Aramanın hep çalışması için YouTube Data API anahtarını yapıştırabilirsin (Google Cloud Console > YouTube Data API v3, ücretsiz). Anahtar sadece bu tarayıcıda saklanır.';
+    const kr = document.createElement('div');
+    kr.className = 'row';
+    const ki = document.createElement('input');
+    ki.type = 'password'; ki.placeholder = 'API anahtarı'; ki.autocomplete = 'off'; ki.setAttribute('aria-label', 'YouTube API anahtarı');
+    const kb = document.createElement('button');
+    kb.type = 'button'; kb.className = 'ghost'; kb.textContent = 'Kaydet ve ara';
+    kb.onclick = () => {
+      const v = ki.value.trim();
+      if (!/^[\w-]{20,80}$/.test(v)) { note('Anahtar geçersiz görünüyor. Tekrar kopyalayıp yapıştır.'); return; }
+      try { localStorage.setItem('ytkey', v); } catch (e) {}
+      doSearch();
+    };
+    kr.appendChild(ki); kr.appendChild(kb);
+    box.appendChild(kp); box.appendChild(kr);
     return;
   }
   box.textContent = '';
