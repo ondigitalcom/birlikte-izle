@@ -107,6 +107,8 @@ html{overflow-x:hidden}
 .unseen{font-size:11px;opacity:.7;margin-top:2px}
 .alone{padding:6px 12px;font-size:12px;color:var(--accent);border-top:1px solid var(--line)}
 .msg.img img{display:block;max-width:100%;max-height:220px;border-radius:10px}
+.sgbtns{display:flex;gap:6px;margin-top:6px}
+.sgbtns button{padding:6px 12px;font-size:13px}
 @keyframes pop{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
 @media(prefers-reduced-motion:reduce){.sticker-emoji{animation:none}}
 
@@ -558,7 +560,7 @@ function showGate() {
 
 // ---------- Uygulama (yaş onayından sonra başlar) ----------
 let appStarted = false;
-const APP_VER = '2026-11-17-h';
+const APP_VER = '2026-11-25-a';
 function startApp() {
 if (appStarted) return;
 appStarted = true;
@@ -917,6 +919,7 @@ async function onData(c, m) {
       }
       return;
     }
+    if (m.type === 'suggest') { onSuggest(c, m); return; }
     let o = null;
     if (m.type === 'chat' && typeof m.text === 'string') o = { type: 'chat', text: m.text.slice(0, 2000) };
     else if (m.type === 'wipe') o = { type: 'wipe' };
@@ -1253,6 +1256,10 @@ function handle(m) {
     }
     return;
   }
+  if (m.type === 'suggestres') {
+    if (!isHost) addMsg(m.ok ? 'Önerin onaylandı, video açılıyor ✓' : (m.why === 'wait' ? 'Çok hızlı öneri gönderiyorsun, biraz bekle.' : 'Önerin kabul edilmedi.'), 'sys');
+    return;
+  }
   if (m.type === 'chat') { addMsg(String(m.text), '', lbl(m.role, m.n)); return; }
   if (m.type === 'sticker') {
     const st = STICKERS[Number(m.i)];
@@ -1296,8 +1303,9 @@ setInterval(() => {
 
 // ---------- Arayüz ----------
 if (!isHost) {
-  $('url').parentElement.style.display = 'none';
-  addMsg('Videoyu oda sahibi başlatır ve durdurur, sen sadece izle.', 'sys');
+  $('load').textContent = 'Öner';
+  $('url').placeholder = 'Video öner: ara ya da link yapıştır';
+  addMsg('Videoyu oda sahibi başlatır ve durdurur. İstediğin videoyu önerebilirsin, oda sahibi onaylarsa açılır.', 'sys');
 }
 $('load').onclick = () => {
   const m = parseMedia($('url').value);
@@ -1306,6 +1314,7 @@ $('load').onclick = () => {
     addMsg('http ile başlayan linkler engellenir. https ile başlayan bir link dene.', 'sys');
     return;
   }
+  if (!isHost) { suggestMedia(m); $('url').value = ''; return; }
   if (m.kind === 'yt' && !ytReady) { addMsg('YouTube oynatıcısı hazırlanıyor, birkaç saniye sonra tekrar dene.', 'sys'); return; }
   loadMedia(m, null);
   send({ type: 'load', media: m });
@@ -1372,7 +1381,7 @@ async function doSearch() {
     box.appendChild(p);
     const pb = document.createElement('button');
     pb.type = 'button'; pb.className = 'ghost';
-    pb.textContent = 'Panodan yapıştır ve aç';
+    pb.textContent = isHost ? 'Panodan yapıştır ve aç' : 'Panodan yapıştır ve öner';
     pb.onclick = () => {
       if (!navigator.clipboard || !navigator.clipboard.readText) { note('Bu tarayıcı panoyu okuyamıyor. Linki kutuya elle yapıştır.'); return; }
       navigator.clipboard.readText().then((t) => {
@@ -1399,6 +1408,13 @@ async function doSearch() {
     sp.appendChild(t); sp.appendChild(a);
     b.appendChild(im); b.appendChild(sp);
     b.onclick = () => {
+      if (!isHost) {
+        suggestMedia({ kind: 'yt', id: r.id }, r.title);
+        box.classList.remove('open');
+        box.textContent = '';
+        $('url').value = '';
+        return;
+      }
       if (!ytReady) { addMsg('YouTube oynatıcısı hazırlanıyor, birkaç saniye sonra tekrar dene.', 'sys'); return; }
       const m = { kind: 'yt', id: r.id };
       loadMedia(m, null);
@@ -1409,6 +1425,55 @@ async function doSearch() {
     };
     box.appendChild(b);
   });
+}
+
+// ---------- Video önerisi: izleyici önerir, kurucu onaylarsa açılır ----------
+function suggestMedia(media, title) {
+  if (!live()) { addMsg('Odaya bağlı değilsin, öneri gitmedi.', 'sys'); return; }
+  const m = { type: 'suggest', media };
+  if (title) m.title = String(title).slice(0, 120);
+  sendT(m);
+  addMsg('Önerin oda sahibine gönderildi. Onaylarsa video açılır.', 'sys');
+}
+function onSuggest(c, m) {
+  const x = m.media;
+  let media = null;
+  if (x && x.kind === 'yt' && typeof x.id === 'string' && /^[\w-]{11}$/.test(x.id)) media = { kind: 'yt', id: x.id };
+  else if (x && x.kind === 'file' && typeof x.url === 'string' && x.url.length <= 2000 && /^https?:\/\/\S+$/i.test(x.url)) media = { kind: 'file', url: x.url };
+  if (!media) return;
+  ack(c, m.mid);
+  const reply = (ok, why) => { try { if (!c._gone && c._ok) c.send({ type: 'suggestres', ok, why: why || '' }); } catch (e) {} };
+  const now = Date.now();
+  if (now - (c._sgAt || 0) < 3000) { reply(false, 'wait'); return; }
+  c._sgAt = now;
+  const title = typeof m.title === 'string' ? m.title.replace(/[\u0000-\u001f]/g, '').slice(0, 120) : '';
+  const label = title || (media.kind === 'yt' ? 'youtu.be/' + media.id : media.url);
+  const d = addMsg('🎬 Video önerdi: ' + label, '', lbl('izleyici', c._n));
+  const row = document.createElement('div');
+  row.className = 'sgbtns';
+  const yes = document.createElement('button');
+  yes.type = 'button'; yes.textContent = 'Aç';
+  const no = document.createElement('button');
+  no.type = 'button'; no.className = 'ghost'; no.textContent = 'Reddet';
+  const finish = (t) => {
+    row.remove();
+    const n = document.createElement('div');
+    n.className = 'unseen'; n.textContent = t;
+    d.appendChild(n);
+    $('msgs').scrollTop = 1e9;
+  };
+  yes.onclick = () => {
+    if (media.kind === 'file' && location.protocol === 'https:' && /^http:\/\//i.test(media.url)) { addMsg('http ile başlayan linkler engellenir, bu öneri açılamaz.', 'sys'); return; }
+    if (media.kind === 'yt' && !ytReady) { addMsg('YouTube oynatıcısı hazırlanıyor, birkaç saniye sonra tekrar dene.', 'sys'); return; }
+    loadMedia(media, null);
+    send({ type: 'load', media });
+    reply(true);
+    finish('Açıldı ✓');
+  };
+  no.onclick = () => { reply(false); finish('Reddedildi'); };
+  row.appendChild(yes); row.appendChild(no);
+  d.appendChild(row);
+  $('msgs').scrollTop = 1e9;
 }
 
 function sendChat() {
